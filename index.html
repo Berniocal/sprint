@@ -287,22 +287,7 @@
         <div id="finishStatus" class="status">Čekám na výběr světelného bodu.</div>
       </section>
 
-      <div class="small" onclick="toggleConfig()">Firebase konfigurace</div>
-      <div class="configBox" id="configBox">
-        <textarea id="firebaseConfigInput" spellcheck="false">{
-  "apiKey": "VLOZ_API_KEY",
-  "authDomain": "VLOZ_PROJECT.firebaseapp.com",
-  "databaseURL": "https://VLOZ_PROJECT-default-rtdb.europe-west1.firebasedatabase.app",
-  "projectId": "VLOZ_PROJECT",
-  "storageBucket": "VLOZ_PROJECT.appspot.com",
-  "messagingSenderId": "VLOZ_SENDER_ID",
-  "appId": "VLOZ_APP_ID"
-}</textarea>
-        <div class="row">
-          <button class="secondary" onclick="saveConfig()">Uložit</button>
-        </div>
-      </div>
-    </section>
+      </section>
   </div>
 
   <dialog id="help">
@@ -360,26 +345,20 @@
       return s.toLocaleString("cs-CZ", {minimumFractionDigits:3, maximumFractionDigits:3});
     }
 
-    function loadSavedConfig(){
-      const saved = localStorage.getItem("athleticStopwatchFirebaseConfig");
-      if(saved) $("firebaseConfigInput").value = saved;
-    }
+    
 
-    window.saveConfig = function(){
-      localStorage.setItem("athleticStopwatchFirebaseConfig", $("firebaseConfigInput").value);
-      $("roleStatus").textContent = "Firebase konfigurace uložena.";
-      $("roleStatus").className = "status good";
-    }
-
-    window.toggleConfig = function(){
-      const box = $("configBox");
-      box.style.display = box.style.display === "block" ? "none" : "block";
-    }
+    const firebaseConfig = {
+  apiKey: "AIzaSyDdg3fdgYnGp-6RmlCOmTkifrU6d0uEfXk",
+  authDomain: "sprint-3414b.firebaseapp.com",
+  databaseURL: "https://sprint-3414b-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "sprint-3414b",
+  storageBucket: "sprint-3414b.firebasestorage.app",
+  messagingSenderId: "264225852640",
+  appId: "1:264225852640:web:9956b9050004f7b36a5485"
+    };
 
     function readConfig(){
-      const cfg = JSON.parse($("firebaseConfigInput").value);
-      if(!cfg.apiKey || cfg.apiKey.includes("VLOZ")) throw new Error("Nejdřív vlož Firebase konfiguraci.");
-      return cfg;
+      return firebaseConfig;
     }
 
     function initFirebase(){
@@ -689,7 +668,7 @@
       ctx.stroke();
     }
 
-    loadSavedConfig();
+
   </script>
 </body>
 </html>
