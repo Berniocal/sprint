@@ -272,12 +272,21 @@
 
       <section id="startScreen" class="hidden">
         <div class="timer" id="timerStart">0,000</div>
-        <button class="secondary" onclick="allowSound()">Povolit zvuk</button>
-        <button class="big" onclick="startRace()">START</button>
+        <button class="big" id="prepareBtn" onclick="prepareAcousticStart()">PŘIPRAVIT</button>
+
+        <div style="margin-top:14px">
+          <label for="micSensitivity">Citlivost startu: zvuk musí překročit <span id="micSensitivityText">35</span> %</label>
+          <input id="micSensitivity" type="range" min="5" max="95" step="5" value="35" oninput="micSensitivityText.textContent=this.value" />
+        </div>
+
+        <div style="margin-top:10px">
+          <label for="micHoldMs">Délka zvukové špičky: <span id="micHoldMsText">20</span> ms</label>
+          <input id="micHoldMs" type="range" min="0" max="150" step="5" value="20" oninput="micHoldMsText.textContent=this.value" />
+        </div>
         <div class="row">
           <button class="secondary" onclick="resetRace()">Reset</button>
         </div>
-        <div id="startStatus" class="status">Připraveno.</div>
+        <div id="startStatus" class="status">Zmáčkni PŘIPRAVIT a potom tleskni.</div>
       </section>
 
       <section id="finishScreen" class="hidden">
@@ -317,8 +326,8 @@
       <li>Telefon, který se připojí jako první, bude startovní.</li>
       <li>Druhý telefon dej do cíle a namiř kameru na svítilnu svítící přes dráhu.</li>
       <li>Na cílovém telefonu klikni v obraze na světelný bod a zmáčkni Kalibrovat.</li>
-      <li>Na startovním telefonu zmáčkni Povolit zvuk a potom START.</li>
-      <li>Když běžec zastíní svítilnu, cílový telefon zastaví čas.</li>
+      <li>Na startovním telefonu zmáčkni PŘIPRAVIT. Telefon zapne mikrofon a čeká na tlesknutí nebo jiný krátký hlasitý zvuk.</li>
+      <li>Po tlesknutí se stopky spustí a běžci vyběhnou. Když běžec zastíní svítilnu, cílový telefon zastaví čas.</li>
     </ol>
     <p>Firebase pravidla pro testování:</p>
     <pre>{
@@ -349,6 +358,14 @@
     let timerInterval = null;
 
     let audioCtx = null;
+
+    let micStream = null;
+    let micCtx = null;
+    let micAnalyser = null;
+    let micData = null;
+    let micLoop = null;
+    let waitingForSound = false;
+    let soundAboveSince = null;
 
     let selectedPoint = null;
     let calibratedBrightness = null;
@@ -497,7 +514,7 @@
 
         if(gateReady) $("finishStatus").textContent = "Čekám na zastínění svítilny.";
       }else{
-        $("startStatus").textContent = "Připraveno.";
+        $("startStatus").textContent = "Zmáčkni PŘIPRAVIT a potom tleskni.";
       }
     }
 
@@ -565,6 +582,127 @@
       if(navigator.vibrate) navigator.vibrate([45,20,45]);
     }
 
+
+    window.prepareAcousticStart = async function(){
+      if(!roomRef) return;
+
+      try{
+        await update(roomRef, {
+          running:false,
+          finished:false,
+          startTime:null,
+          finishTime:null,
+          armedAt: Date.now(),
+          lastActivity: Date.now()
+        });
+
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio:{
+            echoCancellation:false,
+            noiseSuppression:false,
+            autoGainControl:false
+          },
+          video:false
+        });
+
+        micCtx = micCtx || new (window.AudioContext || window.webkitAudioContext)();
+        await micCtx.resume();
+
+        const source = micCtx.createMediaStreamSource(micStream);
+        micAnalyser = micCtx.createAnalyser();
+        micAnalyser.fftSize = 1024;
+        micAnalyser.smoothingTimeConstant = 0.15;
+        micData = new Uint8Array(micAnalyser.fftSize);
+        source.connect(micAnalyser);
+
+        waitingForSound = true;
+        soundAboveSince = null;
+
+        $("prepareBtn").textContent = "ČEKÁM NA TLESKNUTÍ";
+        $("prepareBtn").disabled = true;
+        $("startStatus").textContent = "Mikrofon je zapnutý. Tleskni nebo udělej krátký hlasitý zvuk.";
+        $("startStatus").className = "status warn";
+
+        listenForStartSound();
+
+      }catch(e){
+        waitingForSound = false;
+        $("prepareBtn").textContent = "PŘIPRAVIT";
+        $("prepareBtn").disabled = false;
+        $("startStatus").textContent = "Mikrofon nejde zapnout: " + e.message;
+        $("startStatus").className = "status bad";
+      }
+    }
+
+    function listenForStartSound(){
+      if(micLoop) cancelAnimationFrame(micLoop);
+
+      const loop = async () => {
+        if(!waitingForSound || !micAnalyser) return;
+
+        micAnalyser.getByteTimeDomainData(micData);
+
+        let sum = 0;
+        for(let i=0;i<micData.length;i++){
+          const v = (micData[i] - 128) / 128;
+          sum += v * v;
+        }
+
+        const rms = Math.sqrt(sum / micData.length);
+        const level = Math.min(100, Math.round(rms * 260));
+
+        const threshold = Number($("micSensitivity")?.value) || 35;
+        const holdMs = Number($("micHoldMs")?.value) || 20;
+
+        if(level >= threshold){
+          if(soundAboveSince === null) soundAboveSince = performance.now();
+
+          $("startStatus").textContent = "Zachycen zvuk: " + level + " %. Startuji…";
+          $("startStatus").className = "status good";
+
+          if(performance.now() - soundAboveSince >= holdMs){
+            await triggerAcousticStart();
+            return;
+          }
+        }else{
+          soundAboveSince = null;
+          $("startStatus").textContent = "Čekám na tlesknutí… aktuálně " + level + " %";
+          $("startStatus").className = "status warn";
+        }
+
+        micLoop = requestAnimationFrame(loop);
+      };
+
+      loop();
+    }
+
+    async function triggerAcousticStart(){
+      waitingForSound = false;
+      if(micLoop) cancelAnimationFrame(micLoop);
+      micLoop = null;
+
+      if(micStream){
+        micStream.getTracks().forEach(t => t.stop());
+        micStream = null;
+      }
+
+      $("prepareBtn").textContent = "PŘIPRAVIT";
+      $("prepareBtn").disabled = false;
+
+      await update(roomRef, {
+        running:true,
+        finished:false,
+        startTime:serverTimestamp(),
+        finishTime:null,
+        lastActivity: Date.now(),
+        startType:"sound"
+      });
+
+      $("startStatus").textContent = "START podle zvukového podnětu.";
+      $("startStatus").className = "status good";
+    }
+
+
     window.startRace = async function(){
       if(!roomRef) return;
       await startSound();
@@ -579,6 +717,18 @@
 
     window.resetRace = async function(){
       if(!roomRef) return;
+
+      waitingForSound = false;
+      if(micLoop) cancelAnimationFrame(micLoop);
+      micLoop = null;
+      if(micStream){
+        micStream.getTracks().forEach(t => t.stop());
+        micStream = null;
+      }
+      if($("prepareBtn")){
+        $("prepareBtn").textContent = "PŘIPRAVIT";
+        $("prepareBtn").disabled = false;
+      }
       // Kalibraci po resetu necháváme zachovanou.
       // Cílový telefon tedy nemusí znovu kalibrovat před každým během.
       armGateFromCalibration("Reset hotov. Kalibrace zůstává uložená, čekám na další start.");
