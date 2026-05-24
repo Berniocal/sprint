@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Atletické stopky</title>
+  <style>
+    :root{
+      --bg:#08111f;
+      --card:#111b2d;
+      --text:#f4f7ff;
+      --muted:#9fb0cf;
+      --accent:#34d399;
+      --blue:#60a5fa;
+      --danger:#fb7185;
+      --warn:#facc15;
+      --line:rgba(255,255,255,.13);
+    }
+
+    *{box-sizing:border-box}
+
+    body{
+      margin:0;
+      min-height:100vh;
+      background:
+        radial-gradient(circle at top, rgba(96,165,250,.18), transparent 26rem),
+        var(--bg);
+      color:var(--text);
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    }
+
+    .app{
+      width:min(760px,100%);
+      margin:0 auto;
+      padding:18px;
+    }
+
+    header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:18px;
+    }
+
+    h1{
+      margin:0;
+      font-size:clamp(1.8rem,7vw,3rem);
+      letter-spacing:-.04em;
+    }
+
+    .helpBtn{
+      width:46px;
+      height:46px;
+      border-radius:50%;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.08);
+      color:var(--text);
+      font-size:1.55rem;
+      font-weight:900;
+      cursor:pointer;
+    }
+
+    .card{
+      background:rgba(255,255,255,.06);
+      border:1px solid var(--line);
+      border-radius:24px;
+      padding:18px;
+      box-shadow:0 22px 70px rgba(0,0,0,.35);
+    }
+
+    .codeRow{
+      display:grid;
+      grid-template-columns:1fr auto;
+      gap:10px;
+      align-items:end;
+      margin-bottom:16px;
+    }
+
+    label{
+      display:block;
+      color:var(--muted);
+      font-size:.95rem;
+      margin-bottom:6px;
+    }
+
+    input{
+      width:100%;
+      padding:16px;
+      border:1px solid var(--line);
+      border-radius:18px;
+      background:#050b15;
+      color:var(--text);
+      font-size:1.5rem;
+      font-weight:850;
+      letter-spacing:.1em;
+      text-align:center;
+      outline:none;
+    }
+
+    button{
+      border:0;
+      border-radius:18px;
+      padding:16px 18px;
+      background:var(--accent);
+      color:#04110c;
+      font-weight:900;
+      font-size:1rem;
+      cursor:pointer;
+      touch-action:manipulation;
+    }
+
+    button.secondary{
+      background:rgba(255,255,255,.10);
+      color:var(--text);
+      border:1px solid var(--line);
+    }
+
+    button.danger{
+      background:var(--danger);
+      color:#21050b;
+    }
+
+    button.big{
+      width:100%;
+      min-height:124px;
+      font-size:2.8rem;
+      border-radius:30px;
+      margin-top:14px;
+    }
+
+    button:disabled{
+      opacity:.45;
+    }
+
+    .timer{
+      font-variant-numeric:tabular-nums;
+      font-size:clamp(4rem,20vw,8rem);
+      font-weight:950;
+      text-align:center;
+      letter-spacing:-.08em;
+      line-height:1;
+      margin:16px 0;
+    }
+
+    .status{
+      text-align:center;
+      color:var(--muted);
+      font-size:1.05rem;
+      line-height:1.4;
+      margin:10px 0;
+      min-height:1.5em;
+    }
+
+    .status.good{color:#bbf7d0}
+    .status.bad{color:#fecdd3}
+    .status.warn{color:#fef3c7}
+
+    .row{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:center;
+      margin-top:12px;
+    }
+
+    .hidden{display:none!important}
+
+    .videoBox{
+      position:relative;
+      width:100%;
+      aspect-ratio:16/9;
+      background:#020617;
+      border-radius:22px;
+      overflow:hidden;
+      border:1px solid var(--line);
+      margin:14px 0;
+    }
+
+    video, canvas{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+
+    #overlayCanvas{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+    }
+
+    .hint{
+      color:var(--muted);
+      font-size:1rem;
+      text-align:center;
+      line-height:1.4;
+      margin:8px 0 4px;
+    }
+
+    dialog{
+      width:min(640px,calc(100% - 28px));
+      border:1px solid var(--line);
+      border-radius:24px;
+      background:#111b2d;
+      color:var(--text);
+      padding:20px;
+      box-shadow:0 30px 90px rgba(0,0,0,.55);
+    }
+
+    dialog::backdrop{
+      background:rgba(0,0,0,.55);
+    }
+
+    dialog h2{margin-top:0}
+    dialog li{margin:.45rem 0; color:#dbe7ff}
+    dialog p{color:var(--muted); line-height:1.45}
+
+    .small{
+      color:var(--muted);
+      font-size:.9rem;
+      text-align:center;
+      margin-top:10px;
+    }
+
+    .configBox{
+      margin-top:14px;
+      display:none;
+    }
+
+    textarea{
+      width:100%;
+      min-height:92px;
+      resize:vertical;
+      background:#050b15;
+      color:#dbeafe;
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:12px;
+      font-size:.8rem;
+      font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Atletické stopky</h1>
+      <button class="helpBtn" onclick="help.showModal()">?</button>
+    </header>
+
+    <section class="card">
+      <div class="codeRow">
+        <div>
+          <label for="roomCode">Pětimístný kód</label>
+          <input id="roomCode" inputmode="numeric" maxlength="5" placeholder="12345" />
+        </div>
+        <button onclick="connectRoom()">OK</button>
+      </div>
+
+      <div id="roleStatus" class="status">První připojený telefon bude start, druhý bude cíl.</div>
+
+      <section id="startScreen" class="hidden">
+        <div class="timer" id="timerStart">0,000</div>
+        <button class="secondary" onclick="allowSound()">Povolit zvuk</button>
+        <button class="big" onclick="startRace()">START</button>
+        <div class="row">
+          <button class="secondary" onclick="resetRace()">Reset</button>
+        </div>
+        <div id="startStatus" class="status">Připraveno.</div>
+      </section>
+
+      <section id="finishScreen" class="hidden">
+        <div class="timer" id="timerFinish">0,000</div>
+        <div class="hint">Zapni kameru a klikni na místo, kde je svítilna.</div>
+
+        <div class="videoBox" id="videoBox">
+          <video id="video" playsinline muted autoplay></video>
+          <canvas id="overlayCanvas"></canvas>
+        </div>
+
+        <div class="row">
+          <button onclick="startCamera()">Zapnout kameru</button>
+          <button class="secondary" onclick="calibrateGate()">Kalibrovat</button>
+        </div>
+
+        <div id="finishStatus" class="status">Čekám na výběr světelného bodu.</div>
+      </section>
+
+      <div class="small" onclick="toggleConfig()">Firebase konfigurace</div>
+      <div class="configBox" id="configBox">
+        <textarea id="firebaseConfigInput" spellcheck="false">{
+  "apiKey": "VLOZ_API_KEY",
+  "authDomain": "VLOZ_PROJECT.firebaseapp.com",
+  "databaseURL": "https://VLOZ_PROJECT-default-rtdb.europe-west1.firebasedatabase.app",
+  "projectId": "VLOZ_PROJECT",
+  "storageBucket": "VLOZ_PROJECT.appspot.com",
+  "messagingSenderId": "VLOZ_SENDER_ID",
+  "appId": "VLOZ_APP_ID"
+}</textarea>
+        <div class="row">
+          <button class="secondary" onclick="saveConfig()">Uložit</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <dialog id="help">
+    <h2>Návod</h2>
+    <ol>
+      <li>Na obou telefonech napiš stejný pětimístný kód a zmáčkni OK.</li>
+      <li>Telefon, který se připojí jako první, bude startovní.</li>
+      <li>Druhý telefon dej do cíle a namiř kameru na svítilnu svítící přes dráhu.</li>
+      <li>Na cílovém telefonu klikni v obraze na světelný bod a zmáčkni Kalibrovat.</li>
+      <li>Na startovním telefonu zmáčkni Povolit zvuk a potom START.</li>
+      <li>Když běžec zastíní svítilnu, cílový telefon zastaví čas.</li>
+    </ol>
+    <p>Firebase pravidla pro testování:</p>
+    <pre>{
+  "rules": {
+    "lightGateRooms": {
+      "$room": {
+        ".read": true,
+        ".write": "$room.matches(/^[0-9]{5}$/)"
+      }
+    }
+  }
+}</pre>
+    <button onclick="help.close()">Zavřít</button>
+  </dialog>
+
+  <canvas id="processingCanvas" class="hidden"></canvas>
+
+  <script type="module">
+    import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getDatabase, ref, set, update, onValue, serverTimestamp, get, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+    const $ = id => document.getElementById(id);
+
+    let app, db, roomRef;
+    let roomCode = "";
+    let role = "";
+    let race = {};
+    let timerInterval = null;
+
+    let audioCtx = null;
+
+    let selectedPoint = null;
+    let calibratedBrightness = null;
+    let darkSince = null;
+    let videoStream = null;
+    let detectionLoop = null;
+    let gateReady = false;
+
+    const THRESHOLD = 0.55;
+    const HOLD_MS = 80;
+
+    function formatTime(ms){
+      const s = Math.max(0, ms || 0) / 1000;
+      return s.toLocaleString("cs-CZ", {minimumFractionDigits:3, maximumFractionDigits:3});
+    }
+
+    function loadSavedConfig(){
+      const saved = localStorage.getItem("athleticStopwatchFirebaseConfig");
+      if(saved) $("firebaseConfigInput").value = saved;
+    }
+
+    window.saveConfig = function(){
+      localStorage.setItem("athleticStopwatchFirebaseConfig", $("firebaseConfigInput").value);
+      $("roleStatus").textContent = "Firebase konfigurace uložena.";
+      $("roleStatus").className = "status good";
+    }
+
+    window.toggleConfig = function(){
+      const box = $("configBox");
+      box.style.display = box.style.display === "block" ? "none" : "block";
+    }
+
+    function readConfig(){
+      const cfg = JSON.parse($("firebaseConfigInput").value);
+      if(!cfg.apiKey || cfg.apiKey.includes("VLOZ")) throw new Error("Nejdřív vlož Firebase konfiguraci.");
+      return cfg;
+    }
+
+    function initFirebase(){
+      if(db) return;
+      app = getApps().length ? getApps()[0] : initializeApp(readConfig());
+      db = getDatabase(app);
+    }
+
+    window.connectRoom = async function(){
+      try{
+        roomCode = $("roomCode").value.trim();
+        if(!/^[0-9]{5}$/.test(roomCode)){
+          $("roleStatus").textContent = "Zadej přesně pět číslic.";
+          $("roleStatus").className = "status bad";
+          return;
+        }
+
+        initFirebase();
+        roomRef = ref(db, "lightGateRooms/" + roomCode);
+
+        const tx = await runTransaction(roomRef, current => {
+          if(current === null){
+            return {
+              createdAt: Date.now(),
+              startPhone: true,
+              finishPhone: false,
+              running:false,
+              finished:false,
+              startTime:null,
+              finishTime:null
+            };
+          }
+          if(!current.finishPhone){
+            current.finishPhone = true;
+          }
+          return current;
+        });
+
+        const val = tx.snapshot.val();
+        role = val.startPhone && !val.finishPhone ? "start" : "finish";
+
+        onValue(roomRef, snap => {
+          race = snap.val() || {};
+          updateScreens();
+        });
+
+        if(!timerInterval) timerInterval = setInterval(updateTimer, 30);
+        updateScreens();
+
+      }catch(e){
+        $("roleStatus").textContent = e.message;
+        $("roleStatus").className = "status bad";
+      }
+    }
+
+    function updateScreens(){
+      $("startScreen").classList.toggle("hidden", role !== "start");
+      $("finishScreen").classList.toggle("hidden", role !== "finish");
+
+      if(role === "start"){
+        $("roleStatus").textContent = "Tento telefon je START.";
+        $("roleStatus").className = "status good";
+      }else if(role === "finish"){
+        $("roleStatus").textContent = "Tento telefon je CÍL.";
+        $("roleStatus").className = "status good";
+      }
+
+      if(race.finished && race.startTime && race.finishTime){
+        const result = "Výsledek: " + formatTime(race.finishTime - race.startTime) + " s";
+        $("startStatus").textContent = result;
+        $("finishStatus").textContent = result;
+        $("startStatus").className = "status good";
+        $("finishStatus").className = "status good";
+      }else if(race.running){
+        $("startStatus").textContent = "Čas běží.";
+        if(gateReady) $("finishStatus").textContent = "Čekám na zastínění svítilny.";
+      }else{
+        $("startStatus").textContent = "Připraveno.";
+      }
+    }
+
+    function updateTimer(){
+      let ms = 0;
+      if(race.running && race.startTime) ms = Date.now() - race.startTime;
+      if(race.finished && race.startTime && race.finishTime) ms = race.finishTime - race.startTime;
+      $("timerStart").textContent = formatTime(ms);
+      $("timerFinish").textContent = formatTime(ms);
+    }
+
+    window.allowSound = async function(){
+      await startSound();
+      $("startStatus").textContent = "Zvuk povolen.";
+      $("startStatus").className = "status good";
+    }
+
+    async function startSound(){
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      await audioCtx.resume();
+      const now = audioCtx.currentTime;
+      const dur = 0.28;
+
+      const master = audioCtx.createGain();
+      master.gain.value = 0.95;
+      master.connect(audioCtx.destination);
+
+      const noiseBuffer = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * dur), audioCtx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      for(let i=0;i<data.length;i++){
+        data[i] = (Math.random()*2 - 1) * Math.exp(-i/(data.length*0.18));
+      }
+
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = noiseBuffer;
+
+      const low = audioCtx.createOscillator();
+      low.type = "sawtooth";
+      low.frequency.setValueAtTime(180, now);
+      low.frequency.exponentialRampToValueAtTime(80, now + dur);
+
+      const high = audioCtx.createOscillator();
+      high.type = "square";
+      high.frequency.setValueAtTime(1100, now);
+      high.frequency.exponentialRampToValueAtTime(450, now + dur);
+
+      const noiseGain = audioCtx.createGain();
+      const lowGain = audioCtx.createGain();
+      const highGain = audioCtx.createGain();
+
+      [noiseGain, lowGain, highGain].forEach(g => {
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.exponentialRampToValueAtTime(0.9, now + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+        g.connect(master);
+      });
+
+      noise.connect(noiseGain);
+      low.connect(lowGain);
+      high.connect(highGain);
+
+      noise.start(now); low.start(now); high.start(now);
+      noise.stop(now+dur); low.stop(now+dur); high.stop(now+dur);
+
+      if(navigator.vibrate) navigator.vibrate([45,20,45]);
+    }
+
+    window.startRace = async function(){
+      if(!roomRef) return;
+      await startSound();
+      await update(roomRef, {
+        running:true,
+        finished:false,
+        startTime:serverTimestamp(),
+        finishTime:null
+      });
+    }
+
+    window.resetRace = async function(){
+      if(!roomRef) return;
+      gateReady = calibratedBrightness !== null && selectedPoint !== null;
+      await update(roomRef, {
+        running:false,
+        finished:false,
+        startTime:null,
+        finishTime:null
+      });
+    }
+
+    window.startCamera = async function(){
+      try{
+        videoStream = await navigator.mediaDevices.getUserMedia({
+          video:{
+            facingMode:{ideal:"environment"},
+            width:{ideal:1280},
+            height:{ideal:720},
+            frameRate:{ideal:60}
+          },
+          audio:false
+        });
+        $("video").srcObject = videoStream;
+        await $("video").play();
+        $("finishStatus").textContent = "Klikni na světelný bod.";
+        setupClick();
+        loopDetection();
+      }catch(e){
+        $("finishStatus").textContent = "Kamera nejde spustit: " + e.message;
+        $("finishStatus").className = "status bad";
+      }
+    }
+
+    function setupClick(){
+      $("videoBox").onclick = ev => {
+        const r = $("videoBox").getBoundingClientRect();
+        selectedPoint = {
+          x:(ev.clientX-r.left)/r.width,
+          y:(ev.clientY-r.top)/r.height
+        };
+        calibratedBrightness = null;
+        gateReady = false;
+        $("finishStatus").textContent = "Bod vybrán. Teď zmáčkni Kalibrovat.";
+        $("finishStatus").className = "status warn";
+        drawOverlay();
+      }
+    }
+
+    window.calibrateGate = function(){
+      if(!selectedPoint){
+        $("finishStatus").textContent = "Nejdřív klikni na světelný bod.";
+        $("finishStatus").className = "status bad";
+        return;
+      }
+      const b = readBrightness();
+      if(b === null) return;
+      calibratedBrightness = b;
+      gateReady = true;
+      darkSince = null;
+      $("finishStatus").textContent = "Kalibrace hotová. Čekám na start.";
+      $("finishStatus").className = "status good";
+      drawOverlay();
+    }
+
+    function loopDetection(){
+      if(detectionLoop) cancelAnimationFrame(detectionLoop);
+      const loop = async () => {
+        const b = readBrightness();
+        if(b !== null) await checkGate(b);
+        drawOverlay();
+        detectionLoop = requestAnimationFrame(loop);
+      };
+      loop();
+    }
+
+    function readBrightness(){
+      const v = $("video");
+      if(!v.videoWidth || !selectedPoint) return null;
+
+      const c = $("processingCanvas");
+      const ctx = c.getContext("2d", {willReadFrequently:true});
+      c.width = v.videoWidth;
+      c.height = v.videoHeight;
+      ctx.drawImage(v,0,0,c.width,c.height);
+
+      const cx = Math.round(selectedPoint.x*c.width);
+      const cy = Math.round(selectedPoint.y*c.height);
+      const r = Math.max(8, Math.round(Math.min(c.width,c.height)*0.025));
+      const x0 = Math.max(0,cx-r);
+      const y0 = Math.max(0,cy-r);
+      const img = ctx.getImageData(x0,y0,Math.min(r*2,c.width-x0),Math.min(r*2,c.height-y0)).data;
+
+      let sum=0, n=0;
+      for(let i=0;i<img.length;i+=4){
+        sum += 0.2126*img[i] + 0.7152*img[i+1] + 0.0722*img[i+2];
+        n++;
+      }
+      return sum/n;
+    }
+
+    async function checkGate(b){
+      if(!gateReady || !race.running || race.finished || !roomRef) {
+        darkSince = null;
+        return;
+      }
+
+      const dark = b < calibratedBrightness * THRESHOLD;
+      if(dark){
+        if(darkSince === null) darkSince = performance.now();
+        if(performance.now() - darkSince >= HOLD_MS){
+          gateReady = false;
+          await update(roomRef, {
+            running:false,
+            finished:true,
+            finishTime:serverTimestamp()
+          });
+        }
+      }else{
+        darkSince = null;
+      }
+    }
+
+    function drawOverlay(){
+      const canvas = $("overlayCanvas");
+      const box = $("videoBox");
+      const r = box.getBoundingClientRect();
+      canvas.width = r.width * devicePixelRatio;
+      canvas.height = r.height * devicePixelRatio;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+      ctx.clearRect(0,0,r.width,r.height);
+
+      if(!selectedPoint) return;
+      const x = selectedPoint.x*r.width;
+      const y = selectedPoint.y*r.height;
+      const rad = Math.min(r.width,r.height)*0.055;
+
+      ctx.strokeStyle = calibratedBrightness ? "#34d399" : "#facc15";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(x,y,rad,0,Math.PI*2);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(255,255,255,.85)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x-rad*1.5,y);
+      ctx.lineTo(x+rad*1.5,y);
+      ctx.moveTo(x,y-rad*1.5);
+      ctx.lineTo(x,y+rad*1.5);
+      ctx.stroke();
+    }
+
+    loadSavedConfig();
+  </script>
+</body>
+</html>
