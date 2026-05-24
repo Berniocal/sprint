@@ -84,6 +84,16 @@
       margin-bottom:6px;
     }
 
+
+    input[type="range"]{
+      padding:0;
+      height:36px;
+      accent-color:var(--accent);
+      background:transparent;
+      border:0;
+      border-radius:0;
+    }
+
     input{
       width:100%;
       padding:16px;
@@ -284,6 +294,16 @@
           <button class="secondary" onclick="calibrateGate()">Kalibrovat</button>
         </div>
 
+        <div style="margin-top:14px">
+          <label for="holdMs">Rychlost reakce: světlo musí klesnout na <span id="holdMsText">20</span> ms</label>
+          <input id="holdMs" type="range" min="0" max="250" step="10" value="20" oninput="holdMsText.textContent=this.value" />
+        </div>
+
+        <div style="margin-top:10px">
+          <label for="sensitivity">Citlivost: zastavení při poklesu pod <span id="sensitivityText">70</span> % jasu</label>
+          <input id="sensitivity" type="range" min="20" max="95" step="5" value="70" oninput="sensitivityText.textContent=this.value" />
+        </div>
+
         <div id="finishStatus" class="status">Čekám na výběr světelného bodu.</div>
       </section>
 
@@ -337,8 +357,9 @@
     let detectionLoop = null;
     let gateReady = false;
 
-    const THRESHOLD = 0.55;
-    const HOLD_MS = 80;
+    const DEFAULT_THRESHOLD = 0.70;
+    const DEFAULT_HOLD_MS = 20;
+        const ROOM_TIMEOUT_MS = 5 * 60 * 1000;
 
     function formatTime(ms){
       const s = Math.max(0, ms || 0) / 1000;
@@ -385,6 +406,7 @@
               createdAt: Date.now(),
               startPhone: true,
               finishPhone: false,
+              lastActivity: Date.now(),
               running:false,
               finished:false,
               startTime:null,
@@ -429,7 +451,7 @@
       if(race.finished && race.startTime && race.finishTime){
         const result = "Výsledek: " + formatTime(race.finishTime - race.startTime) + " s";
         $("startStatus").textContent = result;
-        $("finishStatus").textContent = result;
+        $("finishStatus").textContent = result + " Kalibrace zůstává připravená pro další měření.";
         $("startStatus").className = "status good";
         $("finishStatus").className = "status good";
       }else if(race.running){
@@ -511,18 +533,27 @@
         running:true,
         finished:false,
         startTime:serverTimestamp(),
-        finishTime:null
+        finishTime:null,
+        lastActivity: Date.now()
       });
     }
 
     window.resetRace = async function(){
       if(!roomRef) return;
-      gateReady = calibratedBrightness !== null && selectedPoint !== null;
+      // Kalibraci po resetu necháváme zachovanou.
+      // Cílový telefon tedy nemusí znovu kalibrovat před každým během.
+      if(calibratedBrightness !== null && selectedPoint !== null){
+        gateReady = true;
+        darkSince = null;
+        $("finishStatus").textContent = "Reset hotov. Kalibrace zůstává uložená, čekám na další start.";
+        $("finishStatus").className = "status good";
+      }
       await update(roomRef, {
         running:false,
         finished:false,
         startTime:null,
-        finishTime:null
+        finishTime:null,
+        lastActivity: Date.now()
       });
     }
 
@@ -621,15 +652,20 @@
         return;
       }
 
-      const dark = b < calibratedBrightness * THRESHOLD;
+      const threshold = (Number($("sensitivity")?.value) || DEFAULT_THRESHOLD * 100) / 100;
+      const holdMs = Number($("holdMs")?.value) || DEFAULT_HOLD_MS;
+
+      const dark = b < calibratedBrightness * threshold;
       if(dark){
         if(darkSince === null) darkSince = performance.now();
-        if(performance.now() - darkSince >= HOLD_MS){
+
+        if(performance.now() - darkSince >= holdMs){
           gateReady = false;
           await update(roomRef, {
             running:false,
             finished:true,
-            finishTime:serverTimestamp()
+            finishTime:serverTimestamp(),
+            lastActivity: Date.now()
           });
         }
       }else{
@@ -670,5 +706,36 @@
 
 
   </script>
+<script>
+
+    async function monitorRoomTimeout(){
+      if(!roomRef || !race) return;
+
+      const last = race.lastActivity || 0;
+      const inactive = Date.now() - last;
+
+      if(inactive > ROOM_TIMEOUT_MS){
+        try{
+          await set(roomRef, null);
+
+          role = "";
+          race = {};
+          roomRef = null;
+
+          $("startScreen").classList.add("hidden");
+          $("finishScreen").classList.add("hidden");
+
+          $("roleStatus").textContent = "Místnost byla po 5 minutách neaktivity automaticky smazána.";
+          $("roleStatus").className = "status warn";
+
+        }catch(e){
+          console.error(e);
+        }
+      }
+    }
+
+    setInterval(monitorRoomTimeout, 10000);
+
+</script>
 </body>
 </html>
