@@ -295,8 +295,8 @@
         </div>
 
         <div style="margin-top:14px">
-          <label for="holdMs">Rychlost reakce: světlo musí klesnout na <span id="holdMsText">20</span> ms</label>
-          <input id="holdMs" type="range" min="0" max="250" step="10" value="20" oninput="holdMsText.textContent=this.value" />
+          <label for="holdMs">Rychlost reakce: světlo musí klesnout na <span id="holdMsText">5</span> ms</label>
+          <input id="holdMs" type="range" min="0" max="50" step="1" value="5" oninput="holdMsText.textContent=this.value" />
         </div>
 
         <div style="margin-top:10px">
@@ -304,7 +304,7 @@
           <input id="sensitivity" type="range" min="20" max="95" step="5" value="70" oninput="sensitivityText.textContent=this.value" />
         </div>
 
-        <div id="finishStatus" class="status">Čekám na výběr světelného bodu.</div>
+        <div id="finishStatus" class="status">Pokud už jsi někdy kalibroval, nastavení se načte automaticky.</div>
       </section>
 
       </section>
@@ -358,7 +358,7 @@
     let gateReady = false;
 
     const DEFAULT_THRESHOLD = 0.70;
-    const DEFAULT_HOLD_MS = 20;
+    const DEFAULT_HOLD_MS = 5;
         const ROOM_TIMEOUT_MS = 5 * 60 * 1000;
 
     function formatTime(ms){
@@ -369,13 +369,13 @@
     
 
     const firebaseConfig = {
-  apiKey: "AIzaSyDdg3fdgYnGp-6RmlCOmTkifrU6d0uEfXk",
-  authDomain: "sprint-3414b.firebaseapp.com",
-  databaseURL: "https://sprint-3414b-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "sprint-3414b",
-  storageBucket: "sprint-3414b.firebasestorage.app",
-  messagingSenderId: "264225852640",
-  appId: "1:264225852640:web:9956b9050004f7b36a5485"
+      apiKey: "AIzaSyDdg3fdgYnGp-6RmlCOmTkifrU6d0uEfXk",
+      authDomain: "sprint-3414b.firebaseapp.com",
+      databaseURL: "https://sprint-3414b-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "sprint-3414b",
+      storageBucket: "sprint-3414b.firebasestorage.app",
+      messagingSenderId: "264225852640",
+      appId: "1:264225852640:web:9956b9050004f7b36a5485"
     };
 
     function readConfig(){
@@ -608,6 +608,12 @@
       $("finishStatus").textContent = "Kalibrace hotová. Čekám na start.";
       $("finishStatus").className = "status good";
       drawOverlay();
+
+      localStorage.setItem("gateCalibration", JSON.stringify({
+        brightness: calibratedBrightness,
+        point: selectedPoint
+      }));
+
     }
 
     function loopDetection(){
@@ -736,6 +742,16 @@
 
     setInterval(monitorRoomTimeout, 10000);
 
-</script>
+
+    try{
+      const saved = JSON.parse(localStorage.getItem("gateCalibration") || "null");
+      if(saved){
+        calibratedBrightness = saved.brightness;
+        selectedPoint = saved.point;
+        gateReady = true;
+      }
+    }catch(e){}
+
+  </script>
 </body>
 </html>
