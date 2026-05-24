@@ -295,8 +295,8 @@
         </div>
 
         <div style="margin-top:14px">
-          <label for="holdMs">Rychlost reakce: světlo musí klesnout na <span id="holdMsText">5</span> ms</label>
-          <input id="holdMs" type="range" min="0" max="50" step="1" value="5" oninput="holdMsText.textContent=this.value" />
+          <label for="darkFrames">Rychlost reakce: stačí <span id="darkFramesText">1</span> tmavý snímek</label>
+          <input id="darkFrames" type="range" min="1" max="5" step="1" value="1" oninput="darkFramesText.textContent=this.value" />
         </div>
 
         <div style="margin-top:10px">
@@ -304,7 +304,7 @@
           <input id="sensitivity" type="range" min="20" max="95" step="5" value="70" oninput="sensitivityText.textContent=this.value" />
         </div>
 
-        <div id="finishStatus" class="status">Pokud už jsi někdy kalibroval, nastavení se načte automaticky.</div>
+        <div id="finishStatus" class="status">Pokud už jsi jednou kalibroval, nastavení se načte automaticky.</div>
       </section>
 
       </section>
@@ -353,13 +353,25 @@
     let selectedPoint = null;
     let calibratedBrightness = null;
     let darkSince = null;
+    let darkFrameCount = 0;
     let videoStream = null;
     let detectionLoop = null;
     let gateReady = false;
 
     const DEFAULT_THRESHOLD = 0.70;
-    const DEFAULT_HOLD_MS = 5;
+    const DEFAULT_DARK_FRAMES = 1;
         const ROOM_TIMEOUT_MS = 5 * 60 * 1000;
+
+    function loadGateCalibration(){
+      try{
+        const saved = JSON.parse(localStorage.getItem("gateCalibration") || "null");
+        if(saved && saved.brightness !== null && saved.point){
+          calibratedBrightness = saved.brightness;
+          selectedPoint = saved.point;
+          gateReady = true;
+        }
+      }catch(e){}
+    }
 
     function formatTime(ms){
       const s = Math.max(0, ms || 0) / 1000;
@@ -545,6 +557,7 @@
       if(calibratedBrightness !== null && selectedPoint !== null){
         gateReady = true;
         darkSince = null;
+        darkFrameCount = 0;
         $("finishStatus").textContent = "Reset hotov. Kalibrace zůstává uložená, čekám na další start.";
         $("finishStatus").className = "status good";
       }
@@ -605,6 +618,11 @@
       calibratedBrightness = b;
       gateReady = true;
       darkSince = null;
+      darkFrameCount = 0;
+      localStorage.setItem("gateCalibration", JSON.stringify({
+        brightness: calibratedBrightness,
+        point: selectedPoint
+      }));
       $("finishStatus").textContent = "Kalibrace hotová. Čekám na start.";
       $("finishStatus").className = "status good";
       drawOverlay();
@@ -659,14 +677,17 @@
       }
 
       const threshold = (Number($("sensitivity")?.value) || DEFAULT_THRESHOLD * 100) / 100;
-      const holdMs = Number($("holdMs")?.value) || DEFAULT_HOLD_MS;
+      const requiredFrames = Number($("darkFrames")?.value) || DEFAULT_DARK_FRAMES;
 
       const dark = b < calibratedBrightness * threshold;
       if(dark){
-        if(darkSince === null) darkSince = performance.now();
+        darkFrameCount++;
 
-        if(performance.now() - darkSince >= holdMs){
+        // Reakce může být už na 1 snímek. Při 60 fps je 1 snímek asi 16,7 ms,
+        // při 30 fps asi 33,3 ms. To je skutečné omezení kamery.
+        if(darkFrameCount >= requiredFrames){
           gateReady = false;
+          darkFrameCount = 0;
           await update(roomRef, {
             running:false,
             finished:true,
@@ -675,6 +696,7 @@
           });
         }
       }else{
+        darkFrameCount = 0;
         darkSince = null;
       }
     }
@@ -752,6 +774,7 @@
       }
     }catch(e){}
 
+    loadGateCalibration();
   </script>
 </body>
 </html>
