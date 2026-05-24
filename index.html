@@ -448,6 +448,25 @@
       }
     }
 
+
+    function hasCalibration(){
+      return calibratedBrightness !== null && selectedPoint !== null;
+    }
+
+    function armGateFromCalibration(message){
+      if(hasCalibration()){
+        gateReady = true;
+        darkSince = null;
+        darkFrameCount = 0;
+        if(message){
+          $("finishStatus").textContent = message;
+          $("finishStatus").className = "status good";
+        }
+        return true;
+      }
+      return false;
+    }
+
     function updateScreens(){
       $("startScreen").classList.toggle("hidden", role !== "start");
       $("finishScreen").classList.toggle("hidden", role !== "finish");
@@ -463,11 +482,19 @@
       if(race.finished && race.startTime && race.finishTime){
         const result = "Výsledek: " + formatTime(race.finishTime - race.startTime) + " s";
         $("startStatus").textContent = result;
-        $("finishStatus").textContent = result + " Kalibrace zůstává připravená pro další měření.";
+        $("finishStatus").textContent = result + " Kalibrace zůstává uložená. Při dalším startu se brána sama znovu zapne.";
         $("startStatus").className = "status good";
         $("finishStatus").className = "status good";
       }else if(race.running){
         $("startStatus").textContent = "Čas běží.";
+
+        // PACHATEL: po jednom doběhu se gateReady nastavilo na false
+        // a při dalším startu se už samo nevrátilo na true.
+        // Proto to svítilo jako zkalibrované, ale nereagovalo.
+        if(role === "finish" && hasCalibration() && !gateReady){
+          armGateFromCalibration("Brána je znovu připravená. Čekám na zastínění svítilny.");
+        }
+
         if(gateReady) $("finishStatus").textContent = "Čekám na zastínění svítilny.";
       }else{
         $("startStatus").textContent = "Připraveno.";
@@ -554,13 +581,7 @@
       if(!roomRef) return;
       // Kalibraci po resetu necháváme zachovanou.
       // Cílový telefon tedy nemusí znovu kalibrovat před každým během.
-      if(calibratedBrightness !== null && selectedPoint !== null){
-        gateReady = true;
-        darkSince = null;
-        darkFrameCount = 0;
-        $("finishStatus").textContent = "Reset hotov. Kalibrace zůstává uložená, čekám na další start.";
-        $("finishStatus").className = "status good";
-      }
+      armGateFromCalibration("Reset hotov. Kalibrace zůstává uložená, čekám na další start.");
       await update(roomRef, {
         running:false,
         finished:false,
@@ -583,7 +604,11 @@
         });
         $("video").srcObject = videoStream;
         await $("video").play();
-        $("finishStatus").textContent = "Klikni na světelný bod.";
+        if(armGateFromCalibration("Kamera běží. Kalibrace je načtená, brána je připravená.")){
+          // hotovo
+        }else{
+          $("finishStatus").textContent = "Klikni na světelný bod.";
+        }
         setupClick();
         loopDetection();
       }catch(e){
