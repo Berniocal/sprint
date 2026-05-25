@@ -255,7 +255,7 @@
 <body>
   <div class="app">
     <header>
-      <h1>Atletické stopky 1.0</h1>
+      <h1>Atletické stopky</h1>
       <button class="helpBtn" onclick="help.showModal()">?</button>
     </header>
 
@@ -280,8 +280,8 @@
         </div>
 
         <div style="margin-top:10px">
-          <label for="micHoldMs">Délka zvukové špičky: <span id="micHoldMsText">20</span> ms</label>
-          <input id="micHoldMs" type="range" min="0" max="150" step="5" value="20" oninput="micHoldMsText.textContent=this.value" />
+          <label for="micHoldMs">Délka zvukové špičky: <span id="micHoldMsText">0</span> ms</label>
+          <input id="micHoldMs" type="range" min="0" max="150" step="5" value="0" oninput="micHoldMsText.textContent=this.value" />
         </div>
         <div class="row">
           <button class="secondary" onclick="resetRace()">Reset</button>
@@ -676,7 +676,9 @@
           $("startStatus").className = "status good";
 
           if(performance.now() - soundAboveSince >= holdMs){
-            await triggerAcousticStart();
+            // Čas startu vezmeme hned v okamžiku potvrzené detekce zvuku.
+            // Na mobilu se nesmí čekat na vypínání mikrofonu ani na Firebase.
+            triggerAcousticStart(syncedNow());
             return;
           }
         }else{
@@ -691,25 +693,14 @@
       loop();
     }
 
-    async function triggerAcousticStart(){
+    function triggerAcousticStart(detectedAt){
+      // Na mobilu bývá největší brzda vypínání mikrofonu nebo práce s audio streamem.
+      // Proto se čas startu uloží a zobrazí OKAMŽITĚ. Mikrofon se vypne až potom.
+      const startAt = detectedAt || syncedNow();
+
       waitingForSound = false;
       if(micLoop) cancelAnimationFrame(micLoop);
       micLoop = null;
-
-      if(micStream){
-        micStream.getTracks().forEach(t => t.stop());
-        micStream = null;
-      }
-
-      $("prepareBtn").textContent = "PŘIPRAVIT";
-      $("prepareBtn").disabled = false;
-
-      // PACHATEL ZPOŽDĚNÍ:
-      // serverTimestamp() se ve Firebase doplní až po cestě na server a zpět.
-      // Proto se hlavnímu telefonu stopky rozběhly pozdě.
-      // Tady použijeme čas korigovaný o Firebase serverTimeOffset a lokálně
-      // rozběhneme stopky okamžitě, bez čekání na síť.
-      const startAt = syncedNow();
 
       race = {
         ...race,
@@ -722,6 +713,12 @@
       updateScreens();
       updateTimer();
 
+      $("prepareBtn").textContent = "PŘIPRAVIT";
+      $("prepareBtn").disabled = false;
+      $("startStatus").textContent = "START podle zvukového podnětu.";
+      $("startStatus").className = "status good";
+
+      // Zápis do Firebase běží bez await, aby hlavní telefon nečekal na síť.
       update(roomRef, {
         running:true,
         finished:false,
@@ -734,8 +731,15 @@
         $("startStatus").className = "status bad";
       });
 
-      $("startStatus").textContent = "START podle zvukového podnětu.";
-      $("startStatus").className = "status good";
+      // Mikrofon vypneme opožděně a mimo kritickou cestu startu.
+      setTimeout(() => {
+        try{
+          if(micStream){
+            micStream.getTracks().forEach(t => t.stop());
+            micStream = null;
+          }
+        }catch(e){}
+      }, 250);
     }
 
 
