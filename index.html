@@ -233,6 +233,53 @@
       margin-top:10px;
     }
 
+
+    .laneGrid{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+      gap:10px;
+      margin:14px 0;
+    }
+
+    .laneCard{
+      background:rgba(255,255,255,.08);
+      border:1px solid var(--line);
+      border-radius:18px;
+      padding:12px;
+    }
+
+    .laneTitle{
+      color:var(--muted);
+      font-weight:850;
+      margin-bottom:4px;
+    }
+
+    .laneTime{
+      font-variant-numeric:tabular-nums;
+      font-size:2rem;
+      font-weight:950;
+      letter-spacing:-.05em;
+    }
+
+    .laneState{
+      color:var(--muted);
+      font-size:.85rem;
+      margin-top:2px;
+    }
+
+    .laneBadge{
+      width:100%;
+      text-align:center;
+      border-radius:24px;
+      padding:18px;
+      background:rgba(52,211,153,.12);
+      border:1px solid rgba(52,211,153,.35);
+      color:#bbf7d0;
+      font-size:clamp(2rem,12vw,4rem);
+      font-weight:950;
+      margin:8px 0 12px;
+    }
+
     .configBox{
       margin-top:14px;
       display:none;
@@ -268,10 +315,11 @@
         <button onclick="connectRoom()">OK</button>
       </div>
 
-      <div id="roleStatus" class="status">První připojený telefon bude start, druhý bude cíl.</div>
+      <div id="roleStatus" class="status">První připojený telefon bude hlavní start, další telefony budou cíle 1–8.</div>
 
       <section id="startScreen" class="hidden">
         <div class="timer" id="timerStart">0,000</div>
+        <div id="laneTimers" class="laneGrid"></div>
         <button class="big" id="prepareBtn" onclick="prepareAcousticStart()">PŘIPRAVIT</button>
 
         <div style="margin-top:14px">
@@ -290,6 +338,7 @@
       </section>
 
       <section id="finishScreen" class="hidden">
+        <div id="laneBadge" class="laneBadge">CÍL</div>
         <div class="timer" id="timerFinish">0,000</div>
         <div class="hint">Zapni kameru a klikni na místo, kde je svítilna.</div>
 
@@ -322,24 +371,13 @@
   <dialog id="help">
     <h2>Návod</h2>
     <ol>
-      <li>Na obou telefonech napiš stejný pětimístný kód a zmáčkni OK.</li>
-      <li>Telefon, který se připojí jako první, bude startovní.</li>
-      <li>Druhý telefon dej do cíle a namiř kameru na svítilnu svítící přes dráhu.</li>
+      <li>Na všech telefonech napiš stejný pětimístný kód a zmáčkni OK.</li>
+      <li>Telefon, který se připojí jako první, bude hlavní startovní telefon.</li>
+      <li>Další telefony budou cílové brány 1 až 8. Každý dej ke své dráze a namiř kameru na svítilnu.</li>
       <li>Na cílovém telefonu klikni v obraze na světelný bod a zmáčkni Kalibrovat.</li>
       <li>Na startovním telefonu zmáčkni PŘIPRAVIT. Telefon zapne mikrofon a čeká na tlesknutí nebo jiný krátký hlasitý zvuk.</li>
-      <li>Po tlesknutí se stopky spustí a běžci vyběhnou. Když běžec zastíní svítilnu, cílový telefon zastaví čas.</li>
+      <li>Po tlesknutí se všechny časomíry spustí současně. Každý cílový telefon zastaví jen svoji dráhu.</li>
     </ol>
-    <p>Firebase pravidla pro testování:</p>
-    <pre>{
-  "rules": {
-    "lightGateRooms": {
-      "$room": {
-        ".read": true,
-        ".write": "$room.matches(/^[0-9]{5}$/)"
-      }
-    }
-  }
-}</pre>
     <button onclick="help.close()">Zavřít</button>
   </dialog>
 
@@ -354,6 +392,10 @@
     let app, db, roomRef;
     let roomCode = "";
     let role = "";
+    let laneNumber = null;
+    let phoneId = sessionStorage.getItem("lightGatePhoneId") || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+    sessionStorage.setItem("lightGatePhoneId", phoneId);
+
     let race = {};
     let timerInterval = null;
     let startLeaveCleanupInstalled = false;
@@ -373,7 +415,6 @@
 
     let selectedPoint = null;
     let calibratedBrightness = null;
-    let darkSince = null;
     let darkFrameCount = 0;
     let videoStream = null;
     let detectionLoop = null;
@@ -381,25 +422,7 @@
 
     const DEFAULT_THRESHOLD = 0.70;
     const DEFAULT_DARK_FRAMES = 1;
-        const ROOM_TIMEOUT_MS = 5 * 60 * 1000;
-
-    function loadGateCalibration(){
-      try{
-        const saved = JSON.parse(localStorage.getItem("gateCalibration") || "null");
-        if(saved && saved.brightness !== null && saved.point){
-          calibratedBrightness = saved.brightness;
-          selectedPoint = saved.point;
-          gateReady = true;
-        }
-      }catch(e){}
-    }
-
-    function formatTime(ms){
-      const s = Math.max(0, ms || 0) / 1000;
-      return s.toLocaleString("cs-CZ", {minimumFractionDigits:3, maximumFractionDigits:3});
-    }
-
-    
+    const MAX_LANES = 8;
 
     const firebaseConfig = {
       apiKey: "AIzaSyDdg3fdgYnGp-6RmlCOmTkifrU6d0uEfXk",
@@ -411,13 +434,9 @@
       appId: "1:264225852640:web:9956b9050004f7b36a5485"
     };
 
-    function readConfig(){
-      return firebaseConfig;
-    }
-
     function initFirebase(){
       if(db) return;
-      app = getApps().length ? getApps()[0] : initializeApp(readConfig());
+      app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
       db = getDatabase(app);
 
       if(!serverOffsetListening){
@@ -432,46 +451,63 @@
       return Date.now() + serverOffset;
     }
 
+    function formatTime(ms){
+      const s = Math.max(0, ms || 0) / 1000;
+      return s.toLocaleString("cs-CZ", {minimumFractionDigits:3, maximumFractionDigits:3});
+    }
+
+    function getFinishPhones(){
+      return race.finishPhones || {};
+    }
+
+    function getLaneEntries(){
+      return Object.entries(getFinishPhones())
+        .map(([id, data]) => ({id, ...(data || {})}))
+        .filter(x => Number(x.lane) >= 1)
+        .sort((a,b) => Number(a.lane) - Number(b.lane));
+    }
+
+    function getOwnFinishTime(){
+      return race.finishes && laneNumber ? race.finishes[String(laneNumber)]?.finishTime : null;
+    }
+
+    function loadGateCalibration(){
+      try{
+        const saved = JSON.parse(localStorage.getItem("gateCalibration") || "null");
+        if(saved && saved.brightness !== null && saved.point){
+          calibratedBrightness = saved.brightness;
+          selectedPoint = saved.point;
+          gateReady = true;
+        }
+      }catch(e){}
+    }
 
     function handleRoomDeleted(){
       if(deletingRoomBecauseStartLeft) return;
-
       race = {};
       role = "";
+      laneNumber = null;
       roomRef = null;
       waitingForSound = false;
-
       if(micLoop) cancelAnimationFrame(micLoop);
       micLoop = null;
-
       $("startScreen").classList.add("hidden");
       $("finishScreen").classList.add("hidden");
-      $("roleStatus").textContent = "Místnost byla smazána, protože hlavní telefon odešel nebo bylo spojení ukončeno.";
+      $("roleStatus").textContent = "Místnost byla smazána, protože hlavní telefon odešel.";
       $("roleStatus").className = "status warn";
     }
 
     function installStartLeaveCleanup(){
       if(startLeaveCleanupInstalled || !roomRef) return;
       startLeaveCleanupInstalled = true;
-
-      // Nejspolehlivější varianta: mazání provede Firebase server sám,
-      // jakmile hlavní telefon ztratí spojení (zavření záložky, pád aplikace,
-      // ztráta internetu, uspání webview apod.).
       onDisconnect(roomRef).remove().catch(console.error);
 
       const deleteRoomNow = () => {
         if(role !== "start" || !roomRef || deletingRoomBecauseStartLeft) return;
         deletingRoomBecauseStartLeft = true;
-
-        try{
-          set(roomRef, null).catch(console.error);
-        }catch(e){
-          console.error(e);
-        }
+        try{ set(roomRef, null).catch(console.error); }catch(e){ console.error(e); }
       };
 
-      // Na mobilech se beforeunload často nespustí. pagehide a visibilitychange
-      // pokrývají odchod ze záložky i přepnutí aplikace.
       window.addEventListener("pagehide", deleteRoomNow);
       window.addEventListener("beforeunload", deleteRoomNow);
       document.addEventListener("visibilitychange", () => {
@@ -492,38 +528,71 @@
         roomRef = ref(db, "lightGateRooms/" + roomCode);
 
         const tx = await runTransaction(roomRef, current => {
+          const now = syncedNow();
           if(current === null){
             return {
-              createdAt: syncedNow(),
-              startPhone: true,
-              finishPhone: false,
-              lastActivity: syncedNow(),
+              createdAt: now,
+              startPhoneId: phoneId,
+              lastActivity: now,
               running:false,
-              finished:false,
               startTime:null,
-              finishTime:null
+              finishes:{},
+              finishPhones:{},
+              startType:null
             };
           }
-          if(!current.finishPhone){
-            current.finishPhone = true;
+
+          current.finishPhones = current.finishPhones || {};
+          current.finishes = current.finishes || {};
+          current.lastActivity = now;
+
+          if(current.startPhoneId === phoneId) return current;
+          if(current.finishPhones[phoneId]){
+            current.finishPhones[phoneId].connectedAt = current.finishPhones[phoneId].connectedAt || now;
+            current.finishPhones[phoneId].lastSeen = now;
+            return current;
           }
+
+          const used = new Set(Object.values(current.finishPhones).map(p => Number(p?.lane)).filter(Boolean));
+          let freeLane = null;
+          for(let i=1;i<=MAX_LANES;i++){
+            if(!used.has(i)){ freeLane = i; break; }
+          }
+          if(!freeLane) return;
+
+          current.finishPhones[phoneId] = {
+            lane: freeLane,
+            connectedAt: now,
+            lastSeen: now
+          };
           return current;
         });
 
-        const val = tx.snapshot.val();
-        role = val.startPhone && !val.finishPhone ? "start" : "finish";
+        if(!tx.committed){
+          $("roleStatus").textContent = "Místnost je plná. Připojit lze nejvýše 8 cílových telefonů.";
+          $("roleStatus").className = "status bad";
+          return;
+        }
 
-        if(role === "start") installStartLeaveCleanup();
+        const val = tx.snapshot.val() || {};
+        if(val.startPhoneId === phoneId){
+          role = "start";
+          laneNumber = null;
+          installStartLeaveCleanup();
+        }else if(val.finishPhones && val.finishPhones[phoneId]){
+          role = "finish";
+          laneNumber = Number(val.finishPhones[phoneId].lane);
+          onDisconnect(ref(db, `lightGateRooms/${roomCode}/finishPhones/${phoneId}`)).remove().catch(console.error);
+        }
 
         onValue(roomRef, snap => {
-          race = snap.val() || {};
-
           if(!snap.exists()){
             handleRoomDeleted();
             return;
           }
-
+          race = snap.val() || {};
           updateScreens();
+          updateTimer();
         });
 
         if(!timerInterval) timerInterval = setInterval(updateTimer, 30);
@@ -535,7 +604,6 @@
       }
     }
 
-
     function hasCalibration(){
       return calibratedBrightness !== null && selectedPoint !== null;
     }
@@ -543,7 +611,6 @@
     function armGateFromCalibration(message){
       if(hasCalibration()){
         gateReady = true;
-        darkSince = null;
         darkFrameCount = 0;
         if(message){
           $("finishStatus").textContent = message;
@@ -559,54 +626,94 @@
       $("finishScreen").classList.toggle("hidden", role !== "finish");
 
       if(role === "start"){
-        $("roleStatus").textContent = "Tento telefon je START.";
+        const count = getLaneEntries().length;
+        $("roleStatus").textContent = `Tento telefon je HLAVNÍ START. Připojeno cílů: ${count}/${MAX_LANES}.`;
         $("roleStatus").className = "status good";
+        renderLaneTimers();
       }else if(role === "finish"){
-        $("roleStatus").textContent = "Tento telefon je CÍL.";
+        $("roleStatus").textContent = `Tento telefon je CÍL ${laneNumber}.`;
         $("roleStatus").className = "status good";
+        $("laneBadge").textContent = `CÍL ${laneNumber}`;
       }
 
-      if(race.finished && race.startTime && race.finishTime){
-        const result = "Výsledek: " + formatTime(race.finishTime - race.startTime) + " s";
-        $("startStatus").textContent = result;
-        $("finishStatus").textContent = result + " Kalibrace zůstává uložená. Při dalším startu se brána sama znovu zapne.";
-        $("startStatus").className = "status good";
-        $("finishStatus").className = "status good";
-      }else if(race.running){
-        $("startStatus").textContent = "Čas běží.";
-
-        // PACHATEL: po jednom doběhu se gateReady nastavilo na false
-        // a při dalším startu se už samo nevrátilo na true.
-        // Proto to svítilo jako zkalibrované, ale nereagovalo.
-        if(role === "finish" && hasCalibration() && !gateReady){
-          armGateFromCalibration("Brána je znovu připravená. Čekám na zastínění svítilny.");
+      if(role === "finish"){
+        const ownFinish = getOwnFinishTime();
+        if(ownFinish && race.startTime){
+          const result = `Dráha ${laneNumber}: ${formatTime(ownFinish - race.startTime)} s`;
+          $("finishStatus").textContent = result + ". Kalibrace zůstává uložená.";
+          $("finishStatus").className = "status good";
+        }else if(race.running){
+          if(hasCalibration() && !gateReady) armGateFromCalibration(`Cíl ${laneNumber} je znovu připravený. Čekám na zastínění svítilny.`);
+          if(gateReady) $("finishStatus").textContent = `Cíl ${laneNumber}: čekám na zastínění svítilny.`;
         }
-
-        if(gateReady) $("finishStatus").textContent = "Čekám na zastínění svítilny.";
-      }else{
-        $("startStatus").textContent = "Zmáčkni PŘIPRAVIT a potom tleskni.";
       }
+
+      if(role === "start"){
+        if(race.running){
+          $("startStatus").textContent = "Čas běží.";
+          $("startStatus").className = "status good";
+        }else{
+          $("startStatus").textContent = "Zmáčkni PŘIPRAVIT a potom tleskni.";
+        }
+      }
+    }
+
+    function renderLaneTimers(){
+      const box = $("laneTimers");
+      if(!box) return;
+      const entries = getLaneEntries();
+      if(entries.length === 0){
+        box.innerHTML = `<div class="laneCard"><div class="laneTitle">Cíle</div><div class="laneState">Zatím není připojený žádný cílový telefon.</div></div>`;
+        return;
+      }
+
+      box.innerHTML = entries.map(e => {
+        const lane = Number(e.lane);
+        const finish = race.finishes?.[String(lane)]?.finishTime;
+        let ms = 0;
+        let state = "čeká";
+        if(race.startTime && finish){
+          ms = finish - race.startTime;
+          state = "hotovo";
+        }else if(race.running && race.startTime){
+          ms = syncedNow() - race.startTime;
+          state = "běží";
+        }else if(race.startTime){
+          state = "připraven";
+        }
+        return `<div class="laneCard">
+          <div class="laneTitle">Dráha ${lane}</div>
+          <div class="laneTime" id="laneTime${lane}">${formatTime(ms)}</div>
+          <div class="laneState">${state}</div>
+        </div>`;
+      }).join("");
     }
 
     function updateTimer(){
-      let ms = 0;
+      let mainMs = 0;
+      if(race.running && race.startTime) mainMs = syncedNow() - race.startTime;
+      $("timerStart").textContent = formatTime(mainMs);
 
-      // PACHATEL ZPOŽDĚNÍ NA MOBILU:
-      // startTime ukládáme jako synchronizovaný Firebase/serverový čas.
-      // Když se pak na telefonu odečítal obyčejný Date.now(), mohl být startTime
-      // o 2–3 s "v budoucnosti" a stopky se viditelně rozběhly až po dohnání rozdílu.
-      // Proto se i pro průběžné zobrazení musí použít stejný synchronizovaný čas.
-      if(race.running && race.startTime) ms = syncedNow() - race.startTime;
+      if(role === "finish"){
+        const ownFinish = getOwnFinishTime();
+        let ms = 0;
+        if(race.startTime && ownFinish) ms = ownFinish - race.startTime;
+        else if(race.running && race.startTime) ms = syncedNow() - race.startTime;
+        $("timerFinish").textContent = formatTime(ms);
+      }
 
-      if(race.finished && race.startTime && race.finishTime) ms = race.finishTime - race.startTime;
-      $("timerStart").textContent = formatTime(ms);
-      $("timerFinish").textContent = formatTime(ms);
-    }
-
-    window.allowSound = async function(){
-      await startSound();
-      $("startStatus").textContent = "Zvuk povolen.";
-      $("startStatus").className = "status good";
+      if(role === "start"){
+        for(const e of getLaneEntries()){
+          const lane = Number(e.lane);
+          const el = $("laneTime" + lane);
+          if(!el) continue;
+          const finish = race.finishes?.[String(lane)]?.finishTime;
+          let ms = 0;
+          if(race.startTime && finish) ms = finish - race.startTime;
+          else if(race.running && race.startTime) ms = syncedNow() - race.startTime;
+          el.textContent = formatTime(ms);
+        }
+      }
     }
 
     async function startSound(){
@@ -614,95 +721,67 @@
       await audioCtx.resume();
       const now = audioCtx.currentTime;
       const dur = 0.28;
-
       const master = audioCtx.createGain();
       master.gain.value = 0.95;
       master.connect(audioCtx.destination);
-
       const noiseBuffer = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * dur), audioCtx.sampleRate);
       const data = noiseBuffer.getChannelData(0);
-      for(let i=0;i<data.length;i++){
-        data[i] = (Math.random()*2 - 1) * Math.exp(-i/(data.length*0.18));
-      }
-
+      for(let i=0;i<data.length;i++) data[i] = (Math.random()*2 - 1) * Math.exp(-i/(data.length*0.18));
       const noise = audioCtx.createBufferSource();
       noise.buffer = noiseBuffer;
-
       const low = audioCtx.createOscillator();
       low.type = "sawtooth";
       low.frequency.setValueAtTime(180, now);
       low.frequency.exponentialRampToValueAtTime(80, now + dur);
-
       const high = audioCtx.createOscillator();
       high.type = "square";
       high.frequency.setValueAtTime(1100, now);
       high.frequency.exponentialRampToValueAtTime(450, now + dur);
-
       const noiseGain = audioCtx.createGain();
       const lowGain = audioCtx.createGain();
       const highGain = audioCtx.createGain();
-
       [noiseGain, lowGain, highGain].forEach(g => {
         g.gain.setValueAtTime(0.001, now);
         g.gain.exponentialRampToValueAtTime(0.9, now + 0.004);
         g.gain.exponentialRampToValueAtTime(0.001, now + dur);
         g.connect(master);
       });
-
-      noise.connect(noiseGain);
-      low.connect(lowGain);
-      high.connect(highGain);
-
+      noise.connect(noiseGain); low.connect(lowGain); high.connect(highGain);
       noise.start(now); low.start(now); high.start(now);
       noise.stop(now+dur); low.stop(now+dur); high.stop(now+dur);
-
       if(navigator.vibrate) navigator.vibrate([45,20,45]);
     }
 
-
     window.prepareAcousticStart = async function(){
-      if(!roomRef) return;
-
+      if(!roomRef || role !== "start") return;
       try{
         await update(roomRef, {
           running:false,
-          finished:false,
           startTime:null,
-          finishTime:null,
-          armedAt: Date.now(),
+          finishes:{},
+          armedAt: syncedNow(),
           lastActivity: syncedNow()
         });
 
         micStream = await navigator.mediaDevices.getUserMedia({
-          audio:{
-            echoCancellation:false,
-            noiseSuppression:false,
-            autoGainControl:false
-          },
+          audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false },
           video:false
         });
-
         micCtx = micCtx || new (window.AudioContext || window.webkitAudioContext)();
         await micCtx.resume();
-
         const source = micCtx.createMediaStreamSource(micStream);
         micAnalyser = micCtx.createAnalyser();
-        // Menší buffer a nulové vyhlazování = rychlejší reakce na krátké tlesknutí.
         micAnalyser.fftSize = 256;
         micAnalyser.smoothingTimeConstant = 0;
         micData = new Uint8Array(micAnalyser.fftSize);
         source.connect(micAnalyser);
-
         waitingForSound = true;
         soundAboveSince = null;
-
         $("prepareBtn").textContent = "ČEKÁM NA TLESKNUTÍ";
         $("prepareBtn").disabled = true;
         $("startStatus").textContent = "Mikrofon je zapnutý. Tleskni nebo udělej krátký hlasitý zvuk.";
         $("startStatus").className = "status warn";
-
         listenForStartSound();
-
       }catch(e){
         waitingForSound = false;
         $("prepareBtn").textContent = "PŘIPRAVIT";
@@ -714,34 +793,23 @@
 
     function listenForStartSound(){
       if(micLoop) cancelAnimationFrame(micLoop);
-
       const loop = async () => {
         if(!waitingForSound || !micAnalyser) return;
-
         micAnalyser.getByteTimeDomainData(micData);
-
         let sum = 0;
         for(let i=0;i<micData.length;i++){
           const v = (micData[i] - 128) / 128;
           sum += v * v;
         }
-
         const rms = Math.sqrt(sum / micData.length);
         const level = Math.min(100, Math.round(rms * 260));
-
         const threshold = Number($("micSensitivity")?.value) || 35;
-        // Pozor: hodnota 0 je platná. Nesmí se přepsat přes || 20.
-        const holdMs = Number($("micHoldMs")?.value ?? 20);
-
+        const holdMs = Number($("micHoldMs")?.value ?? 0);
         if(level >= threshold){
           if(soundAboveSince === null) soundAboveSince = performance.now();
-
           $("startStatus").textContent = "Zachycen zvuk: " + level + " %. Startuji…";
           $("startStatus").className = "status good";
-
           if(performance.now() - soundAboveSince >= holdMs){
-            // Čas startu vezmeme hned v okamžiku potvrzené detekce zvuku.
-            // Na mobilu se nesmí čekat na vypínání mikrofonu ani na Firebase.
             triggerAcousticStart(syncedNow());
             return;
           }
@@ -750,97 +818,55 @@
           $("startStatus").textContent = "Čekám na tlesknutí… aktuálně " + level + " %";
           $("startStatus").className = "status warn";
         }
-
         micLoop = requestAnimationFrame(loop);
       };
-
       loop();
     }
 
     function triggerAcousticStart(detectedAt){
-      // Na mobilu bývá největší brzda vypínání mikrofonu nebo práce s audio streamem.
-      // Proto se čas startu uloží a zobrazí OKAMŽITĚ. Mikrofon se vypne až potom.
       const startAt = detectedAt || syncedNow();
-
       waitingForSound = false;
       if(micLoop) cancelAnimationFrame(micLoop);
       micLoop = null;
-
-      race = {
-        ...race,
-        running:true,
-        finished:false,
-        startTime:startAt,
-        finishTime:null,
-        startType:"sound"
-      };
+      race = {...race, running:true, startTime:startAt, finishes:{}, startType:"sound"};
       updateScreens();
       updateTimer();
-
       $("prepareBtn").textContent = "PŘIPRAVIT";
       $("prepareBtn").disabled = false;
       $("startStatus").textContent = "START podle zvukového podnětu.";
       $("startStatus").className = "status good";
-
-      // Zápis do Firebase běží bez await, aby hlavní telefon nečekal na síť.
       update(roomRef, {
         running:true,
-        finished:false,
         startTime:startAt,
-        finishTime:null,
+        finishes:{},
         lastActivity: syncedNow(),
         startType:"sound"
       }).catch(e => {
         $("startStatus").textContent = "Start se nepodařilo odeslat: " + e.message;
         $("startStatus").className = "status bad";
       });
-
-      // Mikrofon vypneme opožděně a mimo kritickou cestu startu.
       setTimeout(() => {
         try{
-          if(micStream){
-            micStream.getTracks().forEach(t => t.stop());
-            micStream = null;
-          }
+          if(micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
         }catch(e){}
       }, 250);
     }
 
-
-    window.startRace = async function(){
-      if(!roomRef) return;
-      await startSound();
-      await update(roomRef, {
-        running:true,
-        finished:false,
-        startTime:syncedNow(),
-        finishTime:null,
-        lastActivity: syncedNow()
-      });
-    }
-
     window.resetRace = async function(){
       if(!roomRef) return;
-
       waitingForSound = false;
       if(micLoop) cancelAnimationFrame(micLoop);
       micLoop = null;
-      if(micStream){
-        micStream.getTracks().forEach(t => t.stop());
-        micStream = null;
-      }
+      if(micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
       if($("prepareBtn")){
         $("prepareBtn").textContent = "PŘIPRAVIT";
         $("prepareBtn").disabled = false;
       }
-      // Kalibraci po resetu necháváme zachovanou.
-      // Cílový telefon tedy nemusí znovu kalibrovat před každým během.
-      armGateFromCalibration("Reset hotov. Kalibrace zůstává uložená, čekám na další start.");
+      if(role === "finish") armGateFromCalibration(`Reset hotov. Cíl ${laneNumber} zůstává zkalibrovaný.`);
       await update(roomRef, {
         running:false,
-        finished:false,
         startTime:null,
-        finishTime:null,
+        finishes:{},
         lastActivity: syncedNow()
       });
     }
@@ -848,19 +874,12 @@
     window.startCamera = async function(){
       try{
         videoStream = await navigator.mediaDevices.getUserMedia({
-          video:{
-            facingMode:{ideal:"environment"},
-            width:{ideal:1280},
-            height:{ideal:720},
-            frameRate:{ideal:60}
-          },
+          video:{ facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:60} },
           audio:false
         });
         $("video").srcObject = videoStream;
         await $("video").play();
-        if(armGateFromCalibration("Kamera běží. Kalibrace je načtená, brána je připravená.")){
-          // hotovo
-        }else{
+        if(!armGateFromCalibration(`Kamera běží. Cíl ${laneNumber} je připravený.`)){
           $("finishStatus").textContent = "Klikni na světelný bod.";
         }
         setupClick();
@@ -874,10 +893,7 @@
     function setupClick(){
       $("videoBox").onclick = ev => {
         const r = $("videoBox").getBoundingClientRect();
-        selectedPoint = {
-          x:(ev.clientX-r.left)/r.width,
-          y:(ev.clientY-r.top)/r.height
-        };
+        selectedPoint = { x:(ev.clientX-r.left)/r.width, y:(ev.clientY-r.top)/r.height };
         calibratedBrightness = null;
         gateReady = false;
         $("finishStatus").textContent = "Bod vybrán. Teď zmáčkni Kalibrovat.";
@@ -896,21 +912,11 @@
       if(b === null) return;
       calibratedBrightness = b;
       gateReady = true;
-      darkSince = null;
       darkFrameCount = 0;
-      localStorage.setItem("gateCalibration", JSON.stringify({
-        brightness: calibratedBrightness,
-        point: selectedPoint
-      }));
-      $("finishStatus").textContent = "Kalibrace hotová. Čekám na start.";
+      localStorage.setItem("gateCalibration", JSON.stringify({brightness: calibratedBrightness, point: selectedPoint}));
+      $("finishStatus").textContent = `Kalibrace hotová. Cíl ${laneNumber} čeká na start.`;
       $("finishStatus").className = "status good";
       drawOverlay();
-
-      localStorage.setItem("gateCalibration", JSON.stringify({
-        brightness: calibratedBrightness,
-        point: selectedPoint
-      }));
-
     }
 
     function loopDetection(){
@@ -927,56 +933,44 @@
     function readBrightness(){
       const v = $("video");
       if(!v.videoWidth || !selectedPoint) return null;
-
       const c = $("processingCanvas");
       const ctx = c.getContext("2d", {willReadFrequently:true});
       c.width = v.videoWidth;
       c.height = v.videoHeight;
       ctx.drawImage(v,0,0,c.width,c.height);
-
       const cx = Math.round(selectedPoint.x*c.width);
       const cy = Math.round(selectedPoint.y*c.height);
       const r = Math.max(8, Math.round(Math.min(c.width,c.height)*0.025));
       const x0 = Math.max(0,cx-r);
       const y0 = Math.max(0,cy-r);
       const img = ctx.getImageData(x0,y0,Math.min(r*2,c.width-x0),Math.min(r*2,c.height-y0)).data;
-
       let sum=0, n=0;
-      for(let i=0;i<img.length;i+=4){
-        sum += 0.2126*img[i] + 0.7152*img[i+1] + 0.0722*img[i+2];
-        n++;
-      }
+      for(let i=0;i<img.length;i+=4){ sum += 0.2126*img[i] + 0.7152*img[i+1] + 0.0722*img[i+2]; n++; }
       return sum/n;
     }
 
     async function checkGate(b){
-      if(!gateReady || !race.running || race.finished || !roomRef) {
-        darkSince = null;
+      if(role !== "finish" || !laneNumber || !gateReady || !race.running || !roomRef || getOwnFinishTime()){
         return;
       }
-
       const threshold = (Number($("sensitivity")?.value) || DEFAULT_THRESHOLD * 100) / 100;
       const requiredFrames = Number($("darkFrames")?.value) || DEFAULT_DARK_FRAMES;
-
       const dark = b < calibratedBrightness * threshold;
       if(dark){
         darkFrameCount++;
-
-        // Reakce může být už na 1 snímek. Při 60 fps je 1 snímek asi 16,7 ms,
-        // při 30 fps asi 33,3 ms. To je skutečné omezení kamery.
         if(darkFrameCount >= requiredFrames){
+          const finishAt = syncedNow();
           gateReady = false;
           darkFrameCount = 0;
           await update(roomRef, {
-            running:false,
-            finished:true,
-            finishTime:syncedNow(),
+            [`finishes/${laneNumber}/finishTime`]: finishAt,
+            [`finishes/${laneNumber}/phoneId`]: phoneId,
+            [`finishPhones/${phoneId}/lastSeen`]: syncedNow(),
             lastActivity: syncedNow()
           });
         }
       }else{
         darkFrameCount = 0;
-        darkSince = null;
       }
     }
 
@@ -989,60 +983,22 @@
       const ctx = canvas.getContext("2d");
       ctx.scale(devicePixelRatio, devicePixelRatio);
       ctx.clearRect(0,0,r.width,r.height);
-
       if(!selectedPoint) return;
       const x = selectedPoint.x*r.width;
       const y = selectedPoint.y*r.height;
       const rad = Math.min(r.width,r.height)*0.055;
-
       ctx.strokeStyle = calibratedBrightness ? "#34d399" : "#facc15";
       ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(x,y,rad,0,Math.PI*2);
-      ctx.stroke();
-
+      ctx.beginPath(); ctx.arc(x,y,rad,0,Math.PI*2); ctx.stroke();
       ctx.strokeStyle = "rgba(255,255,255,.85)";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(x-rad*1.5,y);
-      ctx.lineTo(x+rad*1.5,y);
-      ctx.moveTo(x,y-rad*1.5);
-      ctx.lineTo(x,y+rad*1.5);
+      ctx.moveTo(x-rad*1.5,y); ctx.lineTo(x+rad*1.5,y);
+      ctx.moveTo(x,y-rad*1.5); ctx.lineTo(x,y+rad*1.5);
       ctx.stroke();
     }
 
-
-
-    async function monitorRoomTimeout(){
-      if(!roomRef || !race) return;
-
-      const last = race.lastActivity || 0;
-      const inactive = syncedNow() - last;
-
-      if(inactive > ROOM_TIMEOUT_MS){
-        try{
-          await set(roomRef, null);
-
-          role = "";
-          race = {};
-          roomRef = null;
-
-          $("startScreen").classList.add("hidden");
-          $("finishScreen").classList.add("hidden");
-
-          $("roleStatus").textContent = "Místnost byla po 5 minutách neaktivity automaticky smazána.";
-          $("roleStatus").className = "status warn";
-
-        }catch(e){
-          console.error(e);
-        }
-      }
-    }
-
-    setInterval(monitorRoomTimeout, 10000);
-
     loadGateCalibration();
-
   </script>
 </body>
 </html>
