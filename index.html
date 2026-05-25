@@ -347,7 +347,7 @@
 
   <script type="module">
     import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getDatabase, ref, set, update, onValue, serverTimestamp, get, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { getDatabase, ref, set, update, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
     const $ = id => document.getElementById(id);
 
@@ -358,6 +358,8 @@
     let timerInterval = null;
 
     let audioCtx = null;
+    let serverOffset = 0;
+    let serverOffsetListening = false;
 
     let micStream = null;
     let micCtx = null;
@@ -415,6 +417,17 @@
       if(db) return;
       app = getApps().length ? getApps()[0] : initializeApp(readConfig());
       db = getDatabase(app);
+
+      if(!serverOffsetListening){
+        serverOffsetListening = true;
+        onValue(ref(db, ".info/serverTimeOffset"), snap => {
+          serverOffset = Number(snap.val()) || 0;
+        });
+      }
+    }
+
+    function syncedNow(){
+      return Date.now() + serverOffset;
     }
 
     window.connectRoom = async function(){
@@ -432,10 +445,10 @@
         const tx = await runTransaction(roomRef, current => {
           if(current === null){
             return {
-              createdAt: Date.now(),
+              createdAt: syncedNow(),
               startPhone: true,
               finishPhone: false,
-              lastActivity: Date.now(),
+              lastActivity: syncedNow(),
               running:false,
               finished:false,
               startTime:null,
@@ -593,7 +606,7 @@
           startTime:null,
           finishTime:null,
           armedAt: Date.now(),
-          lastActivity: Date.now()
+          lastActivity: syncedNow()
         });
 
         micStream = await navigator.mediaDevices.getUserMedia({
@@ -610,8 +623,9 @@
 
         const source = micCtx.createMediaStreamSource(micStream);
         micAnalyser = micCtx.createAnalyser();
-        micAnalyser.fftSize = 1024;
-        micAnalyser.smoothingTimeConstant = 0.15;
+        // Menší buffer a nulové vyhlazování = rychlejší reakce na krátké tlesknutí.
+        micAnalyser.fftSize = 256;
+        micAnalyser.smoothingTimeConstant = 0;
         micData = new Uint8Array(micAnalyser.fftSize);
         source.connect(micAnalyser);
 
@@ -652,7 +666,8 @@
         const level = Math.min(100, Math.round(rms * 260));
 
         const threshold = Number($("micSensitivity")?.value) || 35;
-        const holdMs = Number($("micHoldMs")?.value) || 20;
+        // Pozor: hodnota 0 je platná. Nesmí se přepsat přes || 20.
+        const holdMs = Number($("micHoldMs")?.value ?? 20);
 
         if(level >= threshold){
           if(soundAboveSince === null) soundAboveSince = performance.now();
@@ -689,13 +704,34 @@
       $("prepareBtn").textContent = "PŘIPRAVIT";
       $("prepareBtn").disabled = false;
 
-      await update(roomRef, {
+      // PACHATEL ZPOŽDĚNÍ:
+      // serverTimestamp() se ve Firebase doplní až po cestě na server a zpět.
+      // Proto se hlavnímu telefonu stopky rozběhly pozdě.
+      // Tady použijeme čas korigovaný o Firebase serverTimeOffset a lokálně
+      // rozběhneme stopky okamžitě, bez čekání na síť.
+      const startAt = syncedNow();
+
+      race = {
+        ...race,
         running:true,
         finished:false,
-        startTime:serverTimestamp(),
+        startTime:startAt,
         finishTime:null,
-        lastActivity: Date.now(),
         startType:"sound"
+      };
+      updateScreens();
+      updateTimer();
+
+      update(roomRef, {
+        running:true,
+        finished:false,
+        startTime:startAt,
+        finishTime:null,
+        lastActivity: syncedNow(),
+        startType:"sound"
+      }).catch(e => {
+        $("startStatus").textContent = "Start se nepodařilo odeslat: " + e.message;
+        $("startStatus").className = "status bad";
       });
 
       $("startStatus").textContent = "START podle zvukového podnětu.";
@@ -709,9 +745,9 @@
       await update(roomRef, {
         running:true,
         finished:false,
-        startTime:serverTimestamp(),
+        startTime:syncedNow(),
         finishTime:null,
-        lastActivity: Date.now()
+        lastActivity: syncedNow()
       });
     }
 
@@ -737,7 +773,7 @@
         finished:false,
         startTime:null,
         finishTime:null,
-        lastActivity: Date.now()
+        lastActivity: syncedNow()
       });
     }
 
@@ -866,8 +902,8 @@
           await update(roomRef, {
             running:false,
             finished:true,
-            finishTime:serverTimestamp(),
-            lastActivity: Date.now()
+            finishTime:syncedNow(),
+            lastActivity: syncedNow()
           });
         }
       }else{
@@ -908,14 +944,12 @@
     }
 
 
-  </script>
-<script>
 
     async function monitorRoomTimeout(){
       if(!roomRef || !race) return;
 
       const last = race.lastActivity || 0;
-      const inactive = Date.now() - last;
+      const inactive = syncedNow() - last;
 
       if(inactive > ROOM_TIMEOUT_MS){
         try{
@@ -939,17 +973,8 @@
 
     setInterval(monitorRoomTimeout, 10000);
 
-
-    try{
-      const saved = JSON.parse(localStorage.getItem("gateCalibration") || "null");
-      if(saved){
-        calibratedBrightness = saved.brightness;
-        selectedPoint = saved.point;
-        gateReady = true;
-      }
-    }catch(e){}
-
     loadGateCalibration();
+
   </script>
 </body>
 </html>
