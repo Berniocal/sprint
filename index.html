@@ -255,7 +255,7 @@
 <body>
   <div class="app">
     <header>
-      <h1>Atletické stopky</h1>
+      <h1>Atletické stopky 1.0 </h1>
       <button class="helpBtn" onclick="help.showModal()">?</button>
     </header>
 
@@ -533,7 +533,14 @@
 
     function updateTimer(){
       let ms = 0;
-      if(race.running && race.startTime) ms = Date.now() - race.startTime;
+
+      // PACHATEL ZPOŽDĚNÍ NA MOBILU:
+      // startTime ukládáme jako synchronizovaný Firebase/serverový čas.
+      // Když se pak na telefonu odečítal obyčejný Date.now(), mohl být startTime
+      // o 2–3 s "v budoucnosti" a stopky se viditelně rozběhly až po dohnání rozdílu.
+      // Proto se i pro průběžné zobrazení musí použít stejný synchronizovaný čas.
+      if(race.running && race.startTime) ms = syncedNow() - race.startTime;
+
       if(race.finished && race.startTime && race.finishTime) ms = race.finishTime - race.startTime;
       $("timerStart").textContent = formatTime(ms);
       $("timerFinish").textContent = formatTime(ms);
