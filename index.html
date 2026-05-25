@@ -94,6 +94,18 @@
       border-radius:0;
     }
 
+    select{
+      width:100%;
+      padding:14px 16px;
+      border:1px solid var(--line);
+      border-radius:18px;
+      background:#050b15;
+      color:var(--text);
+      font-size:1rem;
+      font-weight:750;
+      outline:none;
+    }
+
     input{
       width:100%;
       padding:16px;
@@ -318,7 +330,6 @@
       <div id="roleStatus" class="status">První připojený telefon bude hlavní start, další telefony budou cíle 1–8.</div>
 
       <section id="startScreen" class="hidden">
-        <div class="timer" id="timerStart">0,000</div>
         <div id="laneTimers" class="laneGrid"></div>
         <button class="big" id="prepareBtn" onclick="prepareAcousticStart()">PŘIPRAVIT</button>
 
@@ -353,7 +364,15 @@
         </div>
 
         <div style="margin-top:14px">
-          <label for="darkFrames">Rychlost reakce: stačí <span id="darkFramesText">1</span> tmavý snímek</label>
+          <label for="detectionMode">Režim cílové brány</label>
+          <select id="detectionMode" onchange="updateDetectionModeUI(); clearGateCalibrationForModeChange();">
+            <option value="brightness">Jas – zastavení při ztmavnutí bodu</option>
+            <option value="color">Barva – zastavení při změně barvy bodu</option>
+          </select>
+        </div>
+
+        <div style="margin-top:14px">
+          <label for="darkFrames" id="framesLabel">Rychlost reakce: stačí <span id="darkFramesText">1</span> změněný snímek</label>
           <input id="darkFrames" type="range" min="1" max="5" step="1" value="1" oninput="darkFramesText.textContent=this.value" />
         </div>
 
@@ -415,6 +434,7 @@
 
     let selectedPoint = null;
     let calibratedBrightness = null;
+    let calibratedColor = null;
     let darkFrameCount = 0;
     let videoStream = null;
     let detectionLoop = null;
@@ -474,10 +494,13 @@
     function loadGateCalibration(){
       try{
         const saved = JSON.parse(localStorage.getItem("gateCalibration") || "null");
-        if(saved && saved.brightness !== null && saved.point){
-          calibratedBrightness = saved.brightness;
+        if(saved && saved.point){
+          calibratedBrightness = saved.brightness ?? null;
+          calibratedColor = saved.color ?? null;
           selectedPoint = saved.point;
-          gateReady = true;
+          if(saved.mode && $("detectionMode")) $("detectionMode").value = saved.mode;
+          gateReady = hasCalibration();
+          updateDetectionModeUI();
         }
       }catch(e){}
     }
@@ -604,8 +627,44 @@
       }
     }
 
+    function getDetectionMode(){
+      return $("detectionMode")?.value || "brightness";
+    }
+
+    window.updateDetectionModeUI = function(){
+      const mode = getDetectionMode();
+      const sensText = $("sensitivityText");
+      const sens = $("sensitivity");
+      const label = document.querySelector('label[for="sensitivity"]');
+      const framesLabel = $("framesLabel");
+      if(mode === "color"){
+        if(label) label.innerHTML = 'Citlivost: zastavení při změně barvy nad <span id="sensitivityText">30</span> %';
+        if(sens){ sens.min = 5; sens.max = 80; if(Number(sens.value) > 80 || Number(sens.value) < 5) sens.value = 30; }
+        if($("sensitivityText")) $("sensitivityText").textContent = sens?.value || 30;
+        if(framesLabel) framesLabel.innerHTML = 'Rychlost reakce: stačí <span id="darkFramesText">' + ($("darkFrames")?.value || 1) + '</span> změněný snímek';
+      }else{
+        if(label) label.innerHTML = 'Citlivost: zastavení při poklesu pod <span id="sensitivityText">70</span> % jasu';
+        if(sens){ sens.min = 20; sens.max = 95; if(Number(sens.value) < 20 || Number(sens.value) > 95) sens.value = 70; }
+        if($("sensitivityText")) $("sensitivityText").textContent = sens?.value || 70;
+        if(framesLabel) framesLabel.innerHTML = 'Rychlost reakce: stačí <span id="darkFramesText">' + ($("darkFrames")?.value || 1) + '</span> tmavý snímek';
+      }
+    }
+
+    window.clearGateCalibrationForModeChange = function(){
+      calibratedBrightness = null;
+      calibratedColor = null;
+      gateReady = false;
+      localStorage.removeItem("gateCalibration");
+      if(selectedPoint){
+        $("finishStatus").textContent = "Režim změněn. Zmáčkni znovu Kalibrovat.";
+        $("finishStatus").className = "status warn";
+      }
+      drawOverlay();
+    }
+
     function hasCalibration(){
-      return calibratedBrightness !== null && selectedPoint !== null;
+      if(!selectedPoint) return false;
+      return getDetectionMode() === "color" ? calibratedColor !== null : calibratedBrightness !== null;
     }
 
     function armGateFromCalibration(message){
@@ -631,8 +690,8 @@
         $("roleStatus").className = "status good";
         renderLaneTimers();
       }else if(role === "finish"){
-        $("roleStatus").textContent = `Tento telefon je CÍL ${laneNumber}.`;
-        $("roleStatus").className = "status good";
+        $("roleStatus").textContent = "";
+        $("roleStatus").className = "status hidden";
         $("laneBadge").textContent = `CÍL ${laneNumber}`;
       }
 
@@ -690,10 +749,6 @@
     }
 
     function updateTimer(){
-      let mainMs = 0;
-      if(race.running && race.startTime) mainMs = syncedNow() - race.startTime;
-      $("timerStart").textContent = formatTime(mainMs);
-
       if(role === "finish"){
         const ownFinish = getOwnFinishTime();
         let ms = 0;
@@ -895,6 +950,7 @@
         const r = $("videoBox").getBoundingClientRect();
         selectedPoint = { x:(ev.clientX-r.left)/r.width, y:(ev.clientY-r.top)/r.height };
         calibratedBrightness = null;
+        calibratedColor = null;
         gateReady = false;
         $("finishStatus").textContent = "Bod vybrán. Teď zmáčkni Kalibrovat.";
         $("finishStatus").className = "status warn";
@@ -908,13 +964,20 @@
         $("finishStatus").className = "status bad";
         return;
       }
-      const b = readBrightness();
-      if(b === null) return;
-      calibratedBrightness = b;
+      const sample = readGateSample();
+      if(sample === null) return;
+      calibratedBrightness = sample.brightness;
+      calibratedColor = sample.color;
       gateReady = true;
       darkFrameCount = 0;
-      localStorage.setItem("gateCalibration", JSON.stringify({brightness: calibratedBrightness, point: selectedPoint}));
-      $("finishStatus").textContent = `Kalibrace hotová. Cíl ${laneNumber} čeká na start.`;
+      localStorage.setItem("gateCalibration", JSON.stringify({
+        mode: getDetectionMode(),
+        brightness: calibratedBrightness,
+        color: calibratedColor,
+        point: selectedPoint
+      }));
+      const modeText = getDetectionMode() === "color" ? "barvy" : "jasu";
+      $("finishStatus").textContent = `Kalibrace ${modeText} hotová. Cíl ${laneNumber} čeká na start.`;
       $("finishStatus").className = "status good";
       drawOverlay();
     }
@@ -922,15 +985,15 @@
     function loopDetection(){
       if(detectionLoop) cancelAnimationFrame(detectionLoop);
       const loop = async () => {
-        const b = readBrightness();
-        if(b !== null) await checkGate(b);
+        const sample = readGateSample();
+        if(sample !== null) await checkGate(sample);
         drawOverlay();
         detectionLoop = requestAnimationFrame(loop);
       };
       loop();
     }
 
-    function readBrightness(){
+    function readGateSample(){
       const v = $("video");
       if(!v.videoWidth || !selectedPoint) return null;
       const c = $("processingCanvas");
@@ -944,19 +1007,38 @@
       const x0 = Math.max(0,cx-r);
       const y0 = Math.max(0,cy-r);
       const img = ctx.getImageData(x0,y0,Math.min(r*2,c.width-x0),Math.min(r*2,c.height-y0)).data;
-      let sum=0, n=0;
-      for(let i=0;i<img.length;i+=4){ sum += 0.2126*img[i] + 0.7152*img[i+1] + 0.0722*img[i+2]; n++; }
-      return sum/n;
+      let lum=0, red=0, green=0, blue=0, n=0;
+      for(let i=0;i<img.length;i+=4){
+        red += img[i]; green += img[i+1]; blue += img[i+2];
+        lum += 0.2126*img[i] + 0.7152*img[i+1] + 0.0722*img[i+2];
+        n++;
+      }
+      return {
+        brightness: lum/n,
+        color: {r:red/n, g:green/n, b:blue/n}
+      };
     }
 
-    async function checkGate(b){
+    function colorDistancePercent(a,b){
+      if(!a || !b) return 0;
+      const dr = a.r-b.r, dg = a.g-b.g, db = a.b-b.b;
+      return Math.sqrt(dr*dr + dg*dg + db*db) / 441.67 * 100;
+    }
+
+    async function checkGate(sample){
       if(role !== "finish" || !laneNumber || !gateReady || !race.running || !roomRef || getOwnFinishTime()){
         return;
       }
-      const threshold = (Number($("sensitivity")?.value) || DEFAULT_THRESHOLD * 100) / 100;
       const requiredFrames = Number($("darkFrames")?.value) || DEFAULT_DARK_FRAMES;
-      const dark = b < calibratedBrightness * threshold;
-      if(dark){
+      let changed = false;
+      if(getDetectionMode() === "color"){
+        const threshold = Number($("sensitivity")?.value) || 30;
+        changed = colorDistancePercent(sample.color, calibratedColor) >= threshold;
+      }else{
+        const threshold = (Number($("sensitivity")?.value) || DEFAULT_THRESHOLD * 100) / 100;
+        changed = sample.brightness < calibratedBrightness * threshold;
+      }
+      if(changed){
         darkFrameCount++;
         if(darkFrameCount >= requiredFrames){
           const finishAt = syncedNow();
@@ -987,7 +1069,7 @@
       const x = selectedPoint.x*r.width;
       const y = selectedPoint.y*r.height;
       const rad = Math.min(r.width,r.height)*0.055;
-      ctx.strokeStyle = calibratedBrightness ? "#34d399" : "#facc15";
+      ctx.strokeStyle = hasCalibration() ? "#34d399" : "#facc15";
       ctx.lineWidth = 4;
       ctx.beginPath(); ctx.arc(x,y,rad,0,Math.PI*2); ctx.stroke();
       ctx.strokeStyle = "rgba(255,255,255,.85)";
@@ -998,6 +1080,7 @@
       ctx.stroke();
     }
 
+    updateDetectionModeUI();
     loadGateCalibration();
   </script>
 </body>
