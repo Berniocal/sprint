@@ -255,7 +255,7 @@
 <body>
   <div class="app">
     <header>
-      <h1>Atletické stopky 1.0 </h1>
+      <h1>Atletické stopky</h1>
       <button class="helpBtn" onclick="help.showModal()">?</button>
     </header>
 
@@ -347,7 +347,7 @@
 
   <script type="module">
     import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getDatabase, ref, set, update, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { getDatabase, ref, set, update, onValue, runTransaction, onDisconnect } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
     const $ = id => document.getElementById(id);
 
@@ -356,6 +356,8 @@
     let role = "";
     let race = {};
     let timerInterval = null;
+    let startLeaveCleanupInstalled = false;
+    let deletingRoomBecauseStartLeft = false;
 
     let audioCtx = null;
     let serverOffset = 0;
@@ -430,6 +432,53 @@
       return Date.now() + serverOffset;
     }
 
+
+    function handleRoomDeleted(){
+      if(deletingRoomBecauseStartLeft) return;
+
+      race = {};
+      role = "";
+      roomRef = null;
+      waitingForSound = false;
+
+      if(micLoop) cancelAnimationFrame(micLoop);
+      micLoop = null;
+
+      $("startScreen").classList.add("hidden");
+      $("finishScreen").classList.add("hidden");
+      $("roleStatus").textContent = "Místnost byla smazána, protože hlavní telefon odešel nebo bylo spojení ukončeno.";
+      $("roleStatus").className = "status warn";
+    }
+
+    function installStartLeaveCleanup(){
+      if(startLeaveCleanupInstalled || !roomRef) return;
+      startLeaveCleanupInstalled = true;
+
+      // Nejspolehlivější varianta: mazání provede Firebase server sám,
+      // jakmile hlavní telefon ztratí spojení (zavření záložky, pád aplikace,
+      // ztráta internetu, uspání webview apod.).
+      onDisconnect(roomRef).remove().catch(console.error);
+
+      const deleteRoomNow = () => {
+        if(role !== "start" || !roomRef || deletingRoomBecauseStartLeft) return;
+        deletingRoomBecauseStartLeft = true;
+
+        try{
+          set(roomRef, null).catch(console.error);
+        }catch(e){
+          console.error(e);
+        }
+      };
+
+      // Na mobilech se beforeunload často nespustí. pagehide a visibilitychange
+      // pokrývají odchod ze záložky i přepnutí aplikace.
+      window.addEventListener("pagehide", deleteRoomNow);
+      window.addEventListener("beforeunload", deleteRoomNow);
+      document.addEventListener("visibilitychange", () => {
+        if(document.visibilityState === "hidden") deleteRoomNow();
+      });
+    }
+
     window.connectRoom = async function(){
       try{
         roomCode = $("roomCode").value.trim();
@@ -464,8 +513,16 @@
         const val = tx.snapshot.val();
         role = val.startPhone && !val.finishPhone ? "start" : "finish";
 
+        if(role === "start") installStartLeaveCleanup();
+
         onValue(roomRef, snap => {
           race = snap.val() || {};
+
+          if(!snap.exists()){
+            handleRoomDeleted();
+            return;
+          }
+
           updateScreens();
         });
 
