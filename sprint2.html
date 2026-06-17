@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Samostatná cílová brána</title>
+  <style>
+    :root{
+      --bg:#08111f; --card:#111b2d; --text:#f4f7ff; --muted:#9fb0cf;
+      --accent:#34d399; --blue:#60a5fa; --danger:#fb7185; --warn:#facc15;
+      --line:rgba(255,255,255,.13);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;background:radial-gradient(circle at top,rgba(96,165,250,.18),transparent 26rem),var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .app{width:min(760px,100%);margin:0 auto;padding:18px}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+    h1{margin:0;font-size:clamp(1.55rem,6vw,2.7rem);letter-spacing:-.04em}
+    .helpBtn{width:46px;height:46px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.08);color:var(--text);font-size:1.55rem;font-weight:900;cursor:pointer}
+    .card{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:24px;padding:18px;box-shadow:0 22px 70px rgba(0,0,0,.35)}
+    label{display:block;color:var(--muted);font-size:.95rem;margin-bottom:6px}
+    input,select{width:100%;padding:14px 16px;border:1px solid var(--line);border-radius:18px;background:#050b15;color:var(--text);font-size:1rem;font-weight:750;outline:none}
+    input[type="number"]{font-size:1.2rem;text-align:center}
+    input[type="range"]{padding:0;height:36px;accent-color:var(--accent);background:transparent;border:0;border-radius:0}
+    button{border:0;border-radius:18px;padding:16px 18px;background:var(--accent);color:#04110c;font-weight:900;font-size:1rem;cursor:pointer;touch-action:manipulation}
+    button.secondary{background:rgba(255,255,255,.10);color:var(--text);border:1px solid var(--line)}
+    button.danger{background:var(--danger);color:#21050b}
+    button.big{width:100%;min-height:118px;font-size:2.35rem;border-radius:30px;margin-top:14px}
+    button:disabled{opacity:.45}
+    .timer{font-variant-numeric:tabular-nums;font-size:clamp(4rem,20vw,8rem);font-weight:950;text-align:center;letter-spacing:-.08em;line-height:1;margin:16px 0}
+    .status{text-align:center;color:var(--muted);font-size:1.05rem;line-height:1.4;margin:10px 0;min-height:1.5em}
+    .status.good{color:#bbf7d0}.status.bad{color:#fecdd3}.status.warn{color:#fef3c7}
+    .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:12px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}
+    .videoBox{position:relative;width:100%;aspect-ratio:16/9;background:#020617;border-radius:22px;overflow:hidden;border:1px solid var(--line);margin:14px 0}
+    video,canvas{width:100%;height:100%;object-fit:cover;display:block}
+    #overlayCanvas{position:absolute;inset:0;pointer-events:none}
+    .hint{color:var(--muted);font-size:1rem;text-align:center;line-height:1.4;margin:8px 0 4px}
+    .resultBox{background:rgba(52,211,153,.10);border:1px solid rgba(52,211,153,.35);border-radius:20px;padding:14px;margin-top:14px;text-align:center}
+    .resultTitle{color:#bbf7d0;font-weight:900}.resultTime{font-variant-numeric:tabular-nums;font-size:2.1rem;font-weight:950;letter-spacing:-.04em}
+    dialog{width:min(660px,calc(100% - 28px));border:1px solid var(--line);border-radius:24px;background:#111b2d;color:var(--text);padding:20px;box-shadow:0 30px 90px rgba(0,0,0,.55)}
+    dialog::backdrop{background:rgba(0,0,0,.55)} dialog h2{margin-top:0} dialog li{margin:.45rem 0;color:#dbe7ff} dialog p{color:var(--muted);line-height:1.45}
+    .hidden{display:none!important}.small{color:var(--muted);font-size:.9rem;text-align:center;margin-top:10px}
+  </style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Samostatná cílová brána</h1>
+    <button class="helpBtn" onclick="help.showModal()">?</button>
+  </header>
+
+  <section class="card">
+    <div class="timer" id="timer">0,000</div>
+    <div id="mainStatus" class="status">Zapni kameru, vyber světelný bod, zkalibruj a pak zmáčkni PŘIPRAVIT.</div>
+
+    <div class="grid">
+      <div>
+        <label for="startDistance">Vzdálenost startovacího zvuku od cíle</label>
+        <input id="startDistance" type="number" min="0" step="0.1" value="100" oninput="updateCorrectionText()" />
+      </div>
+      <div>
+        <label for="soundSpeed">Rychlost zvuku</label>
+        <input id="soundSpeed" type="number" min="300" max="380" step="1" value="343" oninput="updateCorrectionText()" />
+      </div>
+    </div>
+    <div class="small" id="correctionText">Korekce: +0,292 s</div>
+
+    <button class="big" id="prepareBtn" onclick="prepareRace()">PŘIPRAVIT</button>
+    <div class="row">
+      <button class="secondary" onclick="startCamera()">Zapnout kameru</button>
+      <button class="secondary" onclick="calibrateGate()">Kalibrovat cíl</button>
+      <button class="danger" onclick="resetRace()">Reset</button>
+    </div>
+
+    <div class="videoBox" id="videoBox">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="overlayCanvas"></canvas>
+    </div>
+    <div class="hint">Klikni v obraze na světelný bod / cílovou svítilnu. Telefon začne měřit zvukem a zastaví se kamerou.</div>
+
+    <div class="grid">
+      <div>
+        <label for="micSensitivity">Citlivost startu: zvuk musí překročit <span id="micSensitivityText">18</span> %</label>
+        <input id="micSensitivity" type="range" min="3" max="80" step="1" value="18" oninput="micSensitivityText.textContent=this.value" />
+      </div>
+      <div>
+        <label for="micHoldMs">Délka zvukové špičky: <span id="micHoldMsText">0</span> ms</label>
+        <input id="micHoldMs" type="range" min="0" max="120" step="5" value="0" oninput="micHoldMsText.textContent=this.value" />
+      </div>
+      <div>
+        <label for="detectionMode">Režim cílové brány</label>
+        <select id="detectionMode" onchange="updateDetectionModeUI(); clearGateCalibrationForModeChange();">
+          <option value="brightness">Jas – zastavení při ztmavnutí bodu</option>
+          <option value="color">Barva – zastavení při změně barvy bodu</option>
+        </select>
+      </div>
+      <div>
+        <label for="darkFrames" id="framesLabel">Rychlost reakce: stačí <span id="darkFramesText">1</span> změněný snímek</label>
+        <input id="darkFrames" type="range" min="1" max="5" step="1" value="1" oninput="darkFramesText.textContent=this.value" />
+      </div>
+      <div>
+        <label for="sensitivity" id="sensitivityLabel">Citlivost cíle: pokles pod <span id="sensitivityText">70</span> % jasu</label>
+        <input id="sensitivity" type="range" min="20" max="95" step="5" value="70" oninput="sensitivityText.textContent=this.value" />
+      </div>
+    </div>
+
+    <div id="resultBox" class="resultBox hidden">
+      <div class="resultTitle">Výsledek po korekci zvuku</div>
+      <div class="resultTime" id="correctedResult">0,000 s</div>
+      <div class="small" id="rawResult"></div>
+    </div>
+  </section>
+</div>
+
+<dialog id="help">
+  <h2>Návod</h2>
+  <ol>
+    <li>Telefon dej do cíle a namiř kameru na světelný bod nebo místo, které běžec při doběhu zastíní.</li>
+    <li>Zmáčkni <b>Zapnout kameru</b>, klikni v obraze na sledovaný bod a zmáčkni <b>Kalibrovat cíl</b>.</li>
+    <li>Zadej vzdálenost mezi startovním zvukem a cílem. Na 100 m vychází korekce asi +0,292 s.</li>
+    <li>Zmáčkni <b>PŘIPRAVIT</b>. Telefon zapne mikrofon a čeká na ostrý zvukový impuls.</li>
+    <li>Po zvuku se čas spustí. Když běžec zastíní světlo nebo změní obraz v cílovém bodě, čas se zastaví.</li>
+  </ol>
+  <p><b>Tip na hlasitý start:</b> vezmi dvě tvrdé dřevěné desky nebo prkénka a prudce s nimi třískni o sebe. Vznikne krátký ostrý impuls, který mikrofon zachytí lépe než běžné tlesknutí.</p>
+  <p>Naměřený čas je čas od okamžiku, kdy zvuk dorazil k telefonu v cíli. Aplikace proto přičte korekci <b>vzdálenost / rychlost zvuku</b>.</p>
+  <button onclick="help.close()">Zavřít</button>
+</dialog>
+
+<canvas id="processingCanvas" class="hidden"></canvas>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let audioCtx=null, micStream=null, micCtx=null, micAnalyser=null, micData=null, micLoop=null;
+  let waitingForSound=false, soundAboveSince=null;
+  let selectedPoint=null, calibratedBrightness=null, calibratedColor=null, darkFrameCount=0;
+  let videoStream=null, detectionLoop=null, gateReady=false;
+  let running=false, startTime=null, finishTime=null, tickLoop=null;
+
+  function formatTime(ms){
+    const s = Math.max(0, ms || 0) / 1000;
+    return s.toLocaleString('cs-CZ',{minimumFractionDigits:3,maximumFractionDigits:3});
+  }
+  function correctionMs(){
+    const d = Math.max(0, Number($('startDistance').value) || 0);
+    const v = Math.max(1, Number($('soundSpeed').value) || 343);
+    return d / v * 1000;
+  }
+  window.updateCorrectionText = function(){
+    $('correctionText').textContent = 'Korekce: +' + formatTime(correctionMs()) + ' s';
+    updateTimer();
+  }
+  function getDetectionMode(){ return $('detectionMode')?.value || 'brightness'; }
+  function hasCalibration(){ return selectedPoint && (getDetectionMode()==='color' ? calibratedColor!==null : calibratedBrightness!==null); }
+
+  function saveCalibration(){
+    localStorage.setItem('standaloneGateCalibration', JSON.stringify({
+      point:selectedPoint, brightness:calibratedBrightness, color:calibratedColor, mode:getDetectionMode()
+    }));
+  }
+  function loadCalibration(){
+    try{
+      const saved = JSON.parse(localStorage.getItem('standaloneGateCalibration') || 'null');
+      if(saved && saved.point){
+        selectedPoint=saved.point; calibratedBrightness=saved.brightness??null; calibratedColor=saved.color??null;
+        if(saved.mode) $('detectionMode').value=saved.mode;
+        gateReady=hasCalibration();
+      }
+    }catch(e){}
+  }
+
+  window.updateDetectionModeUI = function(){
+    const mode=getDetectionMode();
+    const sens=$('sensitivity');
+    if(mode==='color'){
+      $('sensitivityLabel').innerHTML='Citlivost cíle: změna barvy nad <span id="sensitivityText">30</span> %';
+      sens.min=5; sens.max=80; if(Number(sens.value)>80 || Number(sens.value)<5) sens.value=30;
+      $('framesLabel').innerHTML='Rychlost reakce: stačí <span id="darkFramesText">'+($('darkFrames')?.value||1)+'</span> změněný snímek';
+    }else{
+      $('sensitivityLabel').innerHTML='Citlivost cíle: pokles pod <span id="sensitivityText">70</span> % jasu';
+      sens.min=20; sens.max=95; if(Number(sens.value)<20 || Number(sens.value)>95) sens.value=70;
+      $('framesLabel').innerHTML='Rychlost reakce: stačí <span id="darkFramesText">'+($('darkFrames')?.value||1)+'</span> tmavý snímek';
+    }
+    $('sensitivityText').textContent=sens.value;
+    $('darkFramesText').textContent=$('darkFrames').value;
+  }
+  window.clearGateCalibrationForModeChange = function(){
+    calibratedBrightness=null; calibratedColor=null; gateReady=false;
+    localStorage.removeItem('standaloneGateCalibration');
+    if(selectedPoint){ $('mainStatus').textContent='Režim změněn. Zmáčkni znovu Kalibrovat cíl.'; $('mainStatus').className='status warn'; }
+    drawOverlay();
+  }
+
+  window.startCamera = async function(){
+    try{
+      videoStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:60}}, audio:false});
+      $('video').srcObject = videoStream;
+      await $('video').play();
+      setupClick(); loopDetection();
+      if(hasCalibration()) { gateReady=true; $('mainStatus').textContent='Kamera běží a cíl je zkalibrovaný. Můžeš zmáčknout PŘIPRAVIT.'; $('mainStatus').className='status good'; }
+      else { $('mainStatus').textContent='Kamera běží. Klikni na světelný bod a zmáčkni Kalibrovat cíl.'; $('mainStatus').className='status warn'; }
+    }catch(e){ $('mainStatus').textContent='Kamera nejde spustit: '+e.message; $('mainStatus').className='status bad'; }
+  }
+  function setupClick(){
+    $('videoBox').onclick = ev => {
+      const r=$('videoBox').getBoundingClientRect();
+      selectedPoint={x:(ev.clientX-r.left)/r.width, y:(ev.clientY-r.top)/r.height};
+      calibratedBrightness=null; calibratedColor=null; gateReady=false;
+      $('mainStatus').textContent='Bod vybrán. Teď zmáčkni Kalibrovat cíl.'; $('mainStatus').className='status warn'; drawOverlay();
+    };
+  }
+  window.calibrateGate = function(){
+    if(!selectedPoint){ $('mainStatus').textContent='Nejdřív klikni na světelný bod v obraze.'; $('mainStatus').className='status bad'; return; }
+    const sample=readGateSample(); if(sample===null){ $('mainStatus').textContent='Nejdřív zapni kameru.'; $('mainStatus').className='status bad'; return; }
+    calibratedBrightness=sample.brightness; calibratedColor=sample.color; gateReady=true; darkFrameCount=0; saveCalibration();
+    $('mainStatus').textContent='Cíl je zkalibrovaný. Můžeš zmáčknout PŘIPRAVIT.'; $('mainStatus').className='status good'; drawOverlay();
+  }
+
+  window.prepareRace = async function(){
+    if(!hasCalibration()){ $('mainStatus').textContent='Nejdřív vyber bod a zkalibruj cíl.'; $('mainStatus').className='status bad'; return; }
+    try{
+      resetRace(false);
+      micStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}, video:false});
+      micCtx = micCtx || new (window.AudioContext || window.webkitAudioContext)(); await micCtx.resume();
+      const source=micCtx.createMediaStreamSource(micStream);
+      micAnalyser=micCtx.createAnalyser(); micAnalyser.fftSize=256; micAnalyser.smoothingTimeConstant=0;
+      micData=new Uint8Array(micAnalyser.fftSize); source.connect(micAnalyser);
+      waitingForSound=true; soundAboveSince=null; gateReady=true;
+      $('prepareBtn').textContent='ČEKÁM NA ZVUK'; $('prepareBtn').disabled=true;
+      $('mainStatus').textContent='Mikrofon je velmi citlivý. Čekám na krátký ostrý startovní zvuk.'; $('mainStatus').className='status warn';
+      listenForStartSound();
+    }catch(e){ $('prepareBtn').textContent='PŘIPRAVIT'; $('prepareBtn').disabled=false; $('mainStatus').textContent='Mikrofon nejde zapnout: '+e.message; $('mainStatus').className='status bad'; }
+  }
+  function listenForStartSound(){
+    if(micLoop) cancelAnimationFrame(micLoop);
+    const loop=()=>{
+      if(!waitingForSound || !micAnalyser) return;
+      micAnalyser.getByteTimeDomainData(micData);
+      let sum=0, peak=0;
+      for(let i=0;i<micData.length;i++){ const v=(micData[i]-128)/128; sum+=v*v; peak=Math.max(peak,Math.abs(v)); }
+      const rms=Math.sqrt(sum/micData.length);
+      const level=Math.min(100, Math.round(Math.max(rms*260, peak*100)));
+      const threshold=Number($('micSensitivity').value)||18;
+      const holdMs=Number($('micHoldMs').value??0);
+      if(level>=threshold){
+        if(soundAboveSince===null) soundAboveSince=performance.now();
+        $('mainStatus').textContent='Zachycen startovní zvuk: '+level+' %. Startuji…'; $('mainStatus').className='status good';
+        if(performance.now()-soundAboveSince>=holdMs){ triggerStart(); return; }
+      }else{
+        soundAboveSince=null;
+        $('mainStatus').textContent='Čekám na zvuk… aktuálně '+level+' %'; $('mainStatus').className='status warn';
+      }
+      micLoop=requestAnimationFrame(loop);
+    };
+    loop();
+  }
+  function triggerStart(){
+    waitingForSound=false; if(micLoop) cancelAnimationFrame(micLoop); micLoop=null;
+    running=true; startTime=performance.now(); finishTime=null; gateReady=true; darkFrameCount=0;
+    $('prepareBtn').textContent='BĚŽÍ'; $('prepareBtn').disabled=true;
+    $('mainStatus').textContent='Čas běží. Čekám na proběhnutí cílem.'; $('mainStatus').className='status good';
+    $('resultBox').classList.add('hidden');
+    startTick();
+    setTimeout(()=>{ try{ if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; } }catch(e){} },250);
+  }
+  function finishRace(){
+    if(!running || finishTime) return;
+    finishTime=performance.now(); running=false; gateReady=false;
+    $('prepareBtn').textContent='PŘIPRAVIT'; $('prepareBtn').disabled=false;
+    $('mainStatus').textContent='Cíl zachycen. Výsledek je přepočtený o zpoždění zvuku.'; $('mainStatus').className='status good';
+    updateTimer(true);
+  }
+  window.resetRace = function(showMsg=true){
+    waitingForSound=false; running=false; startTime=null; finishTime=null; darkFrameCount=0; gateReady=hasCalibration();
+    if(micLoop) cancelAnimationFrame(micLoop); micLoop=null;
+    try{ if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; } }catch(e){}
+    $('prepareBtn').textContent='PŘIPRAVIT'; $('prepareBtn').disabled=false;
+    $('timer').textContent='0,000'; $('resultBox').classList.add('hidden');
+    if(showMsg){ $('mainStatus').textContent=hasCalibration()?'Reset hotov. Můžeš zmáčknout PŘIPRAVIT.':'Reset hotov. Nejdřív zkalibruj cíl.'; $('mainStatus').className='status'; }
+  }
+  function startTick(){
+    if(tickLoop) cancelAnimationFrame(tickLoop);
+    const loop=()=>{ updateTimer(); if(running) tickLoop=requestAnimationFrame(loop); };
+    loop();
+  }
+  function updateTimer(final=false){
+    let raw=0;
+    if(startTime && finishTime) raw=finishTime-startTime;
+    else if(startTime && running) raw=performance.now()-startTime;
+    $('timer').textContent=formatTime(raw);
+    if(final && startTime && finishTime){
+      const corr=correctionMs();
+      $('correctedResult').textContent=formatTime(raw+corr)+' s';
+      $('rawResult').textContent='Surově: '+formatTime(raw)+' s, korekce zvuku: +'+formatTime(corr)+' s';
+      $('resultBox').classList.remove('hidden');
+    }
+  }
+
+  function loopDetection(){
+    if(detectionLoop) cancelAnimationFrame(detectionLoop);
+    const loop=async()=>{ const sample=readGateSample(); if(sample!==null) checkGate(sample); drawOverlay(); detectionLoop=requestAnimationFrame(loop); };
+    loop();
+  }
+  function readGateSample(){
+    const v=$('video'); if(!v.videoWidth || !selectedPoint) return null;
+    const c=$('processingCanvas'); const ctx=c.getContext('2d',{willReadFrequently:true});
+    c.width=v.videoWidth; c.height=v.videoHeight; ctx.drawImage(v,0,0,c.width,c.height);
+    const cx=Math.round(selectedPoint.x*c.width), cy=Math.round(selectedPoint.y*c.height);
+    const r=Math.max(8,Math.round(Math.min(c.width,c.height)*0.025));
+    const x0=Math.max(0,cx-r), y0=Math.max(0,cy-r);
+    const img=ctx.getImageData(x0,y0,Math.min(r*2,c.width-x0),Math.min(r*2,c.height-y0)).data;
+    let lum=0, red=0, green=0, blue=0, n=0;
+    for(let i=0;i<img.length;i+=4){ red+=img[i]; green+=img[i+1]; blue+=img[i+2]; lum+=0.2126*img[i]+0.7152*img[i+1]+0.0722*img[i+2]; n++; }
+    return {brightness:lum/n, color:{r:red/n,g:green/n,b:blue/n}};
+  }
+  function colorDistancePercent(a,b){ if(!a||!b) return 0; const dr=a.r-b.r,dg=a.g-b.g,db=a.b-b.b; return Math.sqrt(dr*dr+dg*dg+db*db)/441.67*100; }
+  function checkGate(sample){
+    if(!running || !gateReady || finishTime || !hasCalibration()) return;
+    const requiredFrames=Number($('darkFrames').value)||1; let changed=false;
+    if(getDetectionMode()==='color') changed=colorDistancePercent(sample.color,calibratedColor) >= (Number($('sensitivity').value)||30);
+    else changed=sample.brightness < calibratedBrightness*((Number($('sensitivity').value)||70)/100);
+    if(changed){ darkFrameCount++; if(darkFrameCount>=requiredFrames) finishRace(); }
+    else darkFrameCount=0;
+  }
+  function drawOverlay(){
+    const canvas=$('overlayCanvas'), box=$('videoBox'), r=box.getBoundingClientRect();
+    canvas.width=r.width*devicePixelRatio; canvas.height=r.height*devicePixelRatio;
+    const ctx=canvas.getContext('2d'); ctx.scale(devicePixelRatio,devicePixelRatio); ctx.clearRect(0,0,r.width,r.height);
+    if(!selectedPoint) return;
+    const x=selectedPoint.x*r.width, y=selectedPoint.y*r.height, rad=Math.min(r.width,r.height)*0.055;
+    ctx.strokeStyle=hasCalibration()?'#34d399':'#facc15'; ctx.lineWidth=4; ctx.beginPath(); ctx.arc(x,y,rad,0,Math.PI*2); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(x-rad*1.5,y); ctx.lineTo(x+rad*1.5,y); ctx.moveTo(x,y-rad*1.5); ctx.lineTo(x,y+rad*1.5); ctx.stroke();
+  }
+
+  loadCalibration(); updateDetectionModeUI(); updateCorrectionText(); drawOverlay();
+</script>
+</body>
+</html>
