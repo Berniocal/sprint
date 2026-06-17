@@ -104,6 +104,7 @@
 <option value="3">3 – méně citlivá</option>
 </select>
 <input id="sensitivity" type="hidden" value="70">
+<input id="colorSensitivity" type="hidden" value="12">
       </div>
     </div>
 
@@ -163,15 +164,20 @@ function applySensitivityPresets(){
     const v = Number(cam.value);
     const sens = document.getElementById('sensitivity');
 
+    const colorSens = document.getElementById('colorSensitivity');
+
     if(v===1){ // nejcitlivější
-      sens.value='95';
+      sens.value='95';          // jas: zareaguje už na pokles pod 95 % původního jasu
+      if(colorSens) colorSens.value='6';   // barva: malá změna barvy stačí
       window.presetFrames = 1;
     }else if(v===2){
       sens.value='85';
+      if(colorSens) colorSens.value='12';
       window.presetFrames = 1;
     }else{
       sens.value='70';
-      window.presetFrames = 2;
+      if(colorSens) colorSens.value='20';
+      window.presetFrames = 1;
     }
   }
 }
@@ -220,19 +226,9 @@ function applySensitivityPresets(){
   }
 
   window.updateDetectionModeUI = function(){
-    const mode=getDetectionMode();
-    const sens=$('sensitivity');
-    if(mode==='color'){
-      $('sensitivityLabel').innerHTML='Citlivost cíle: změna barvy nad <span id="sensitivityText">30</span> %';
-      sens.min=5; sens.max=80; if(Number(sens.value)>80 || Number(sens.value)<5) sens.value=30;
-      $('framesLabel').innerHTML='Rychlost reakce: stačí <span id="darkFramesText">'+($('darkFrames')?.value||1)+'</span> změněný snímek';
-    }else{
-      $('sensitivityLabel').innerHTML='Citlivost cíle: pokles pod <span id="sensitivityText">70</span> % jasu';
-      sens.min=20; sens.max=95; if(Number(sens.value)<20 || Number(sens.value)>95) sens.value=70;
-      $('framesLabel').innerHTML='Rychlost reakce: stačí <span id="darkFramesText">'+($('darkFrames')?.value||1)+'</span> tmavý snímek';
-    }
-    $('sensitivityText').textContent=sens.value;
-    $('darkFramesText').textContent=$('darkFrames').value;
+    // Původně se zde měnily popisky jezdců.
+    // Jezdce už jsou odstraněné, takže tu nesmíme sahat na neexistující prvky.
+    applySensitivityPresets();
   }
   window.clearGateCalibrationForModeChange = function(){
     calibratedBrightness=null; calibratedColor=null; gateReady=false;
@@ -381,7 +377,7 @@ function applySensitivityPresets(){
   function checkGate(sample){
     if(!running || !gateReady || finishTime || !hasCalibration()) return;
     const requiredFrames=(window.presetFrames ?? 1); let changed=false;
-    if(getDetectionMode()==='color') changed=colorDistancePercent(sample.color,calibratedColor) >= (Number($('sensitivity').value)||30);
+    if(getDetectionMode()==='color') changed=colorDistancePercent(sample.color,calibratedColor) >= (Number($('colorSensitivity').value)||12);
     else changed=sample.brightness < calibratedBrightness*((Number($('sensitivity').value)||70)/100);
     if(changed){ darkFrameCount++; if(darkFrameCount>=requiredFrames) finishRace(); }
     else darkFrameCount=0;
@@ -396,7 +392,7 @@ function applySensitivityPresets(){
     ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(x-rad*1.5,y); ctx.lineTo(x+rad*1.5,y); ctx.moveTo(x,y-rad*1.5); ctx.lineTo(x,y+rad*1.5); ctx.stroke();
   }
 
-  loadCalibration(); updateDetectionModeUI(); updateCorrectionText(); applySensitivityPresets(); drawOverlay();
+  loadCalibration(); applySensitivityPresets(); updateDetectionModeUI(); updateCorrectionText(); drawOverlay();
 </script>
 </body>
 </html>
