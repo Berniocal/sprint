@@ -59,8 +59,8 @@
         <input id="startDistance" type="number" min="0" step="0.1" value="100" oninput="updateCorrectionText()" />
       </div>
       <div>
-        <label for="soundSpeed">Rychlost zvuku</label>
-        <input id="soundSpeed" type="number" min="300" max="380" step="1" value="343" oninput="updateCorrectionText()" />
+        <label for="airTemperature">Aktuální teplota vzduchu</label>
+        <input id="airTemperature" type="number" min="-30" max="50" step="0.5" value="20" oninput="updateCorrectionText()" />
       </div>
     </div>
     <div class="small" id="correctionText">Korekce: +0,292 s</div>
@@ -117,12 +117,12 @@
   <ol>
     <li>Telefon dej do cíle a namiř kameru na světelný bod nebo místo, které běžec při doběhu zastíní.</li>
     <li>Zmáčkni <b>Zapnout kameru</b>, klikni v obraze na sledovaný bod a zmáčkni <b>Kalibrovat cíl</b>.</li>
-    <li>Zadej vzdálenost mezi startovním zvukem a cílem. Na 100 m vychází korekce asi +0,292 s.</li>
+    <li>Zadej vzdálenost mezi startovním zvukem a cílem a aktuální teplotu vzduchu. Podle teploty se automaticky dopočítá rychlost zvuku. Při 20 °C a 100 m vychází korekce asi +0,291 s.</li>
     <li>Zmáčkni <b>PŘIPRAVIT</b>. Telefon zapne mikrofon a čeká na ostrý zvukový impuls.</li>
     <li>Po zvuku se čas spustí. Když běžec zastíní světlo nebo změní obraz v cílovém bodě, čas se zastaví.</li>
   </ol>
   <p><b>Tip na hlasitý start:</b> vezmi dvě tvrdé dřevěné desky nebo prkénka a prudce s nimi třískni o sebe. Vznikne krátký ostrý impuls, který mikrofon zachytí lépe než běžné tlesknutí.</p>
-  <p>Naměřený čas je čas od okamžiku, kdy zvuk dorazil k telefonu v cíli. Aplikace proto přičte korekci <b>vzdálenost / rychlost zvuku</b>.</p>
+  <p>Naměřený čas je čas od okamžiku, kdy zvuk dorazil k telefonu v cíli. Aplikace proto přičte korekci <b>vzdálenost / rychlost zvuku</b>. Rychlost zvuku se počítá přibližně podle vztahu <b>v = 331,3 + 0,606 · t</b>, kde <b>t</b> je teplota ve °C.</p>
   <button onclick="help.close()">Zavřít</button>
 </dialog>
 
@@ -138,15 +138,20 @@
 
   function formatTime(ms){
     const s = Math.max(0, ms || 0) / 1000;
-    return s.toLocaleString('cs-CZ',{minimumFractionDigits:3,maximumFractionDigits:3});
+    return s.toFixed(3).replace('.', ',');
+  }
+  function soundSpeedFromTemperature(){
+    const t = Number($('airTemperature').value);
+    const temp = Number.isFinite(t) ? t : 20;
+    return 331.3 + 0.606 * temp;
   }
   function correctionMs(){
     const d = Math.max(0, Number($('startDistance').value) || 0);
-    const v = Math.max(1, Number($('soundSpeed').value) || 343);
+    const v = Math.max(1, soundSpeedFromTemperature());
     return d / v * 1000;
   }
   window.updateCorrectionText = function(){
-    $('correctionText').textContent = 'Korekce: +' + formatTime(correctionMs()) + ' s';
+    $('correctionText').textContent = 'Korekce: +' + formatTime(correctionMs()) + ' s · rychlost zvuku: ' + soundSpeedFromTemperature().toLocaleString('cs-CZ',{minimumFractionDigits:1,maximumFractionDigits:1}) + ' m·s⁻¹';
     updateTimer();
   }
   function getDetectionMode(){ return $('detectionMode')?.value || 'brightness'; }
@@ -266,7 +271,7 @@
     if(!running || finishTime) return;
     finishTime=performance.now(); running=false; gateReady=false;
     $('prepareBtn').textContent='PŘIPRAVIT'; $('prepareBtn').disabled=false;
-    $('mainStatus').textContent='Cíl zachycen. Výsledek je přepočtený o zpoždění zvuku.'; $('mainStatus').className='status good';
+    $('mainStatus').textContent='Cíl zachycen. Finální čas je zobrazen nahoře.'; $('mainStatus').className='status good';
     updateTimer(true);
   }
   window.resetRace = function(showMsg=true){
@@ -286,12 +291,12 @@
     let raw=0;
     if(startTime && finishTime) raw=finishTime-startTime;
     else if(startTime && running) raw=performance.now()-startTime;
-    $('timer').textContent=formatTime(raw);
+    const corr=correctionMs();
+    $('timer').textContent=formatTime(raw + corr);
     if(final && startTime && finishTime){
-      const corr=correctionMs();
       $('correctedResult').textContent=formatTime(raw+corr)+' s';
       $('rawResult').textContent='Surově: '+formatTime(raw)+' s, korekce zvuku: +'+formatTime(corr)+' s';
-      $('resultBox').classList.remove('hidden');
+      $('resultBox').classList.add('hidden');
     }
   }
 
