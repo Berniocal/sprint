@@ -121,8 +121,8 @@
     <li>Telefon dej do cíle a namiř kameru na světelný bod nebo místo, které běžec při doběhu zastíní.</li>
     <li>Zmáčkni <b>Zapnout kameru</b>, klikni v obraze na sledovaný bod a zmáčkni <b>Kalibrovat cíl</b>.</li>
     <li>Zadej vzdálenost mezi startovním zvukem a cílem a aktuální teplotu vzduchu. Podle teploty se automaticky dopočítá rychlost zvuku. Při 20 °C a 100 m vychází korekce asi +0,291 s.</li>
-    <li>Zmáčkni <b>PŘIPRAVIT</b>. Telefon zapne mikrofon a čeká na ostrý zvukový impuls.</li>
-    <li>Po zvuku se čas spustí. Když běžec zastíní světlo nebo změní obraz v cílovém bodě, čas se zastaví.</li>
+    <li>Zmáčkni <b>PŘIPRAVIT</b>. Telefon zapne mikrofon a čeká na krátký prudký zvukový impuls, například tlesknutí nebo klapnutí.</li>
+    <li>Po prudkém zvukovém skoku se čas spustí. Když běžec zastíní světlo nebo změní obraz v cílovém bodě, čas se zastaví.</li>
   </ol>
   <p><b>Tip na hlasitý start:</b> vezmi dvě tvrdé dřevěné desky nebo prkénka a prudce s nimi třískni o sebe. Vznikne krátký ostrý impuls, který mikrofon zachytí lépe než běžné tlesknutí.</p>
   <p>Naměřený čas je čas od okamžiku, kdy zvuk dorazil k telefonu v cíli. Aplikace proto přičte korekci <b>vzdálenost / rychlost zvuku</b>. Rychlost zvuku se počítá přibližně podle vztahu <b>v = 331,3 + 0,606 · t</b>, kde <b>t</b> je teplota ve °C.</p>
@@ -141,15 +141,21 @@ function applySensitivityPresets(){
   if(mic){
     const v = Number(mic.value);
 
-    if(v===1){ // nejcitlivější
-      mic.dataset.threshold='3';
+    if(v===1){ // nejcitlivější na tlesknutí / klapnutí
+      mic.dataset.threshold='2';
+      mic.dataset.jump='6';
+      mic.dataset.quiet='10';
       window.presetHoldMs = 0;
     }else if(v===2){ // normální
-      mic.dataset.threshold='18';
+      mic.dataset.threshold='6';
+      mic.dataset.jump='12';
+      mic.dataset.quiet='16';
       window.presetHoldMs = 0;
     }else{
-      mic.dataset.threshold='35';
-      window.presetHoldMs = 40;
+      mic.dataset.threshold='12';
+      mic.dataset.jump='20';
+      mic.dataset.quiet='22';
+      window.presetHoldMs = 20;
     }
   }
 
@@ -161,17 +167,17 @@ function applySensitivityPresets(){
       sens.value='95';
       window.presetFrames = 1;
     }else if(v===2){
-      sens.value='70';
+      sens.value='85';
       window.presetFrames = 1;
     }else{
-      sens.value='50';
+      sens.value='70';
       window.presetFrames = 2;
     }
   }
 }
 
   let audioCtx=null, micStream=null, micCtx=null, micAnalyser=null, micData=null, micLoop=null;
-  let waitingForSound=false, soundAboveSince=null;
+  let waitingForSound=false, soundAboveSince=null, lastSoundLevel=0, quietFrames=0;
   let selectedPoint=null, calibratedBrightness=null, calibratedColor=null, darkFrameCount=0;
   let videoStream=null, detectionLoop=null, gateReady=false;
   let running=false, startTime=null, finishTime=null, tickLoop=null;
@@ -269,9 +275,9 @@ function applySensitivityPresets(){
       const source=micCtx.createMediaStreamSource(micStream);
       micAnalyser=micCtx.createAnalyser(); micAnalyser.fftSize=256; micAnalyser.smoothingTimeConstant=0;
       micData=new Uint8Array(micAnalyser.fftSize); source.connect(micAnalyser);
-      waitingForSound=true; soundAboveSince=null; gateReady=true;
+      waitingForSound=true; soundAboveSince=null; lastSoundLevel=0; quietFrames=0; gateReady=true;
       $('prepareBtn').textContent='ČEKÁM NA ZVUK'; $('prepareBtn').disabled=true;
-      $('mainStatus').textContent='Mikrofon je velmi citlivý. Čekám na krátký ostrý startovní zvuk.'; $('mainStatus').className='status warn';
+      $('mainStatus').textContent='Mikrofon je nastavený na tlesknutí / klapnutí. Čekám na krátký prudký startovní impuls.'; $('mainStatus').className='status warn';
       listenForStartSound();
     }catch(e){ $('prepareBtn').textContent='PŘIPRAVIT'; $('prepareBtn').disabled=false; $('mainStatus').textContent='Mikrofon nejde zapnout: '+e.message; $('mainStatus').className='status bad'; }
   }
@@ -284,16 +290,30 @@ function applySensitivityPresets(){
       for(let i=0;i<micData.length;i++){ const v=(micData[i]-128)/128; sum+=v*v; peak=Math.max(peak,Math.abs(v)); }
       const rms=Math.sqrt(sum/micData.length);
       const level=Math.min(100, Math.round(Math.max(rms*260, peak*100)));
-      const threshold=Number($('micSensitivity').dataset.threshold)||18;
+      const threshold=Number($('micSensitivity').dataset.threshold)||6;
+      const jumpThreshold=Number($('micSensitivity').dataset.jump)||12;
+      const quietLimit=Number($('micSensitivity').dataset.quiet)||16;
       const holdMs=(window.presetHoldMs ?? 0);
-      if(level>=threshold){
+
+      // Detekce tlesknutí / klapky:
+      // Start se spustí buď při dostatečné hlasitosti,
+      // nebo při prudkém krátkém skoku oproti předchozímu tichému stavu.
+      if(level < quietLimit) quietFrames++;
+      else quietFrames = 0;
+
+      const jump = level - lastSoundLevel;
+      const impulseDetected = (level >= threshold && quietFrames <= 2 && jump >= jumpThreshold) || level >= Math.max(threshold + 18, 28);
+
+      if(impulseDetected){
         if(soundAboveSince===null) soundAboveSince=performance.now();
-        $('mainStatus').textContent='Zachycen startovní zvuk: '+level+' %. Startuji…'; $('mainStatus').className='status good';
+        $('mainStatus').textContent='Zachycen ostrý startovní impuls: '+level+' %. Startuji…'; $('mainStatus').className='status good';
         if(performance.now()-soundAboveSince>=holdMs){ triggerStart(); return; }
       }else{
         soundAboveSince=null;
-        $('mainStatus').textContent='Čekám na zvuk… aktuálně '+level+' %'; $('mainStatus').className='status warn';
+        $('mainStatus').textContent='Čekám na tlesknutí / klapnutí… aktuálně '+level+' %, skok '+Math.max(0, jump)+' %'; $('mainStatus').className='status warn';
       }
+
+      lastSoundLevel = level;
       micLoop=requestAnimationFrame(loop);
     };
     loop();
